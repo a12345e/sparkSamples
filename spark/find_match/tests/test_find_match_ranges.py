@@ -1,9 +1,8 @@
-import pytest
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row
 
-from find_match_ranges import initial_filter_non_nulls_a_col_time_col
-from tests.generate_dataframes_helpers import complete_row_to_schema, create_spark_session, compare_dataframes
-from tests.default_spark_builder import DefaultSparkFactory
+from spark.find_match.find_match_ranges import initial_filter_non_nulls_a_col_time_col
+from tests.infra.dataframes_helpers import complete_row_to_schema, compare_dataframes
+from tests.infra.default_spark_builder import DefaultSparkFactory
 
 def test_initial_filter_non_nulls_a_col_time_col():
     schema = StructType([

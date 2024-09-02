@@ -2,7 +2,7 @@ from typing import List
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, Row, FloatType, LongType, DoubleType, TimestampType
 from datetime import datetime, timedelta
-from tests.default_spark_builder import DefaultSparkFactory
+from tests.infra.default_spark_builder import DefaultSparkFactory
 
 spark = DefaultSparkFactory().spark
 def dataframe_create(rows: List[Row],

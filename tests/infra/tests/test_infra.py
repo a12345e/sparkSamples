@@ -1,5 +1,19 @@
-from pyspark.sql.types import StructType, StructField, IntegerType, StringType, Row, FloatType, LongType, DoubleType, TimestampType
-from tests.generate_dataframes_helpers import  row_validate_schema, dataframe_create
+import pytest
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType, Row, DoubleType, TimestampType
+from tests.infra.dataframes_helpers import  row_validate_schema, dataframe_create
+
+from tests.infra.default_spark_builder import DefaultSparkFactory
+
+
+
+def test_things():
+    s1 = DefaultSparkFactory()
+    s2 = DefaultSparkFactory()
+
+    assert s1 is s2
+    assert id(s1) == id(s2)
+    assert s1.spark == s2.spark
+
 
 def test_dataframe_creat():
     schema = StructType([
@@ -15,5 +29,3 @@ def test_dataframe_creat():
     df = dataframe_create(rows, schema, complete_with_nulls=False)
     df.show(truncate=False)
     df.printSchema()
-
-
