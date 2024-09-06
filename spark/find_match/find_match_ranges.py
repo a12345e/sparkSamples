@@ -1,3 +1,4 @@
+from itertools import chain
 from typing import Dict, List
 import pyspark.sql.functions as F
 from pyspark.sql import Window, WindowSpec
@@ -27,67 +28,93 @@ class FindMatchRange:
                  matched_col: str,
                  time_col: str,
                  status_col: str,
-                 status_namings: Dict[Status, str],
-                 other_matches: 'List[str]'):
+                 status_namings: 'Dict[Status, int]',
+                 other_matches: 'List[str]',
+                 start_valid_column: str):
         self._hero_col = hero_col
         self._matched_col = matched_col
         self._time_col = time_col
         self._status_col = status_col
         self._status_namings = status_namings
         self._other_matches = other_matches
-        self._validity_column = FindMatchRange.generate_name_plus_uuid('valid')
-        given_cols = [self._hero_col, self._matched_col, self._time_col, self._status_col]+other_matches
-        assert len(set(given_cols)) == 4+len(other_matches), 'Some coloumns defied twice!!'
+        self._start_validity_column = start_valid_column
+        given_cols = [self._start_validity_column, self._hero_col, self._matched_col, self._time_col, self._status_col] + other_matches
+        assert len(set(given_cols)) == 5+len(other_matches), 'Some columns defied twice!!'
+        self._status_map = F.create_map([F.lit(k) for pair in status_namings.items() for k in pair])
 
+
+    @property
+    def validity_column(self):
+        return self._start_validity_column
+    def _initialize_dataframe(self,df: DataFrame) -> DataFrame:
+        mandatory_columns = set([self._hero_col,
+                                                self._matched_col,self._status_col,
+                                                self._time_col]+self._other_matches)
+        assert len(set(df.columns).intersection(mandatory_columns))  == len(mandatory_columns)
+        df = self._initial_filter_non_nulls_hero_and_time_col(df)
+        df.show()
+        df = df.withColumn(self._start_validity_column, F.lit(True))
+        df.show()
+        df = self._enumerate_status_column(df)
+        df.show()
+        print('stage-1')
+        df = self._avoid_match_col_null_on_start_status(df)
+        print('stage-2')
+        df.show()
+        df = self._keep_only_start_end_status(df)
+        print('stage-3')
+        df.show()
+        return df
 
     @staticmethod
     def generate_name_plus_uuid(name: str):
         return f"{name}_{uuid.uuid4().hex}"
 
-    def _initial_filter_non_nulls_a_col_time_col(self, df: DataFrame):
+    def _initial_filter_non_nulls_hero_and_time_col(self, df: DataFrame):
         return df.where( (F.col(self._hero_col).isNotNull()) & (F.col(self._time_col).isNotNull()))
 
     def _enumerate_status_column(self, df:DataFrame) -> DataFrame:
-
-        tmp_col = FindMatchRange.generate_name_plus_uuid('tmp')
-        df = df.withColumn(tmp_col,F.lit(None))
-        for status_enum, status_value in self._status_namings.items():
-            df = df.withColumn(tmp_col,
-                           F.when(F.col(self._status_col) == F.lit(status_value),
-                                  status_enum.value).otherwise(F.col(tmp_col)))
-        return df.withColumn(self._status_col,F.col(tmp_col)).drop(tmp_col)
+        return df.withColumn(self._status_col,
+                           F.when(F.col(self._status_col).isin(list(self._status_namings.keys())),
+                                  self._status_map.getItem(F.col(self._status_col))).otherwise(FindMatchRange.Status.INVALID.value))
 
     def _keep_only_start_end_status(self, df: DataFrame) -> DataFrame:
         return df.where(F.col(self._status_col).isin([self.Status.START.value, self.Status.END.value]))
 
-    def _avoid_b_col_null_on_start_status(self, df: DataFrame) -> DataFrame:
+    def _avoid_match_col_null_on_start_status(self, df: DataFrame) -> DataFrame:
         return df.where((F.col(self._status_col) != self.Status.START.value) |
                   (F.col(self._matched_col).isNotNull()))
 
 
-    def  _invalidate_multiple_match_solutions(self,
-            df: DataFrame,
-            key_cols: List[str],
-            match_cols: List[str]):
+    def  _prepare_valid_start_events(self,
+                                     df: DataFrame,
+                                     key_cols: List[str],
+                                     match_cols: List[str]):
             """
                 For each given key by the key cols there shou
             :rtype: object
             """
-            agg_expressions = [F.collect_set(F.col(column)).alias(column) for column in match_cols]
-            df = df.groupBy(*key_cols).agg(*agg_expressions)
+            f_agg_column = lambda x: f'{x}_values'
+            window_spec = Window.partitionBy(*key_cols)
+            agg_expressions = [F.collect_set(column).over(window_spec).alias(f_agg_column(column)) for column in match_cols]
+            df_agg = df.select(df.columns+agg_expressions)
             for col in match_cols:
-                df = df.withColumn(self._validity_column,
-                                   F.when(F.size(col)>1, F.lit(False)).otherwise(F.col(self._validity_column)))
-                df = df.withColumn(col,F.explode_outer(col))
-            return df
+                condition = ((F.size(f_agg_column(col))>1) &
+                             (F.col(self._status_col) == FindMatchRange.Status.START.value))
+                df_agg = df_agg.withColumn(self._start_validity_column,
+                    F.when(condition, F.lit(False)).otherwise(F.col(self._start_validity_column)))
+                condition = (F.col(self._start_validity_column) == F.lit(True)) & (F.size(F.col(f_agg_column(col))) == 1) & (F.col(self._status_col) == FindMatchRange.Status.START.value)
+                df_agg = df_agg.withColumn(col,F.when(condition,F.col(f_agg_column(col)).getItem(0)).otherwise(F.col(col)))
+            df_agg=df_agg.drop(*[f_agg_column(column) for column in match_cols])
+            return df_agg.distinct()
 
 
-    def create_transaction_window_partitioned_by_hero(self) -> WindowSpec:
+    def _create_transaction_window_partitioned_by_hero(self) -> WindowSpec:
         return Window.partitionBy(self._hero_col).orderBy(self._time_col, self._matched_col, self._status_col)
-    def create_transaction_window_partitioned_by_matched(self) -> WindowSpec:
+    def _create_transaction_window_partitioned_by_matched(self) -> WindowSpec:
         return Window.partitionBy(self._matched_col).orderBy(self._time_col, self._hero_col, self._status_col)
 
-    def create_condition_end_after_start(
+    def _create_condition_end_after_start(
             self,
             window_spec: WindowSpec):
             end_after_start_cond = ((F.col(self._status_col) == self.Status.END.value) &
@@ -135,19 +162,14 @@ class FindMatchRange:
     def prepare_matches(
                     self,
                     df: DataFrame) -> DataFrame:
-        df = self._initial_filter_non_nulls_a_col_time_col(df)
-        df = self._enumerate_status_column(df)
-        df = self._keep_only_start_end_status(df)
-        df = self._avoid_b_col_null_on_start_status(df)
-        df = self._invalidate_multiple_match_solutions(df,key_cols=[self._hero_col,
-                                                                   self._status_col,
-                                                                   self._time_col],
-                                                      match_cols=self._other_matches+[self._matched_col])
-        df = self._invalidate_multiple_match_solutions(df, key_cols=[self._matched_col,
-                                                                    self._status_col,
-                                                                    self._time_col],
-                                                      match_cols=self._other_matches + [self._hero_col])
-
-
+        df = self._initialize_dataframe(df)
+        df = self._prepare_valid_start_events(df, key_cols=[self._hero_col,
+                                                            self._status_col,
+                                                            self._time_col],
+                                              match_cols=self._other_matches+[self._matched_col])
+        df = self._prepare_valid_start_events(df, key_cols=[self._matched_col,
+                                                            self._status_col,
+                                                            self._time_col],
+                                              match_cols=self._other_matches + [self._hero_col])
         df = self.mark_end_time_with_ending_reason(df)
         return df
