@@ -93,20 +93,29 @@ def test_invalidate_multiple_match_solutions():
                          ])
     rows = [
             #these two rows will create one valid start point reducing the other matches
+            Row(a=-1, b=-1, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=1, v=True),
+            Row(a=None, b=-1, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=1, v=True),
+
+            Row(a=0,b=0, status=FindMatchRange.Status.START.value,t=1,o1=1, o2=1,v=True),
+            Row(a=0, b=None, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=1, v=True),
+
             Row(a=1,b=1, status=FindMatchRange.Status.START.value,t=1,o1=None, o2=1,v=True),
             Row(a=1, b=1, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=None, v=True),
 
-            # these two rows will create one valid end point reducing the other matches
+            # these two rows will create one two end points for previous match
             Row(a=1, b=1, status=FindMatchRange.Status.END.value, t=2, o1=1, o2=None, v=True),
             Row(a=1, b=1, status=FindMatchRange.Status.END.value, t=2, o1=None, o2=1, v=True),
 
+            #There is invalidity because the other matches are not consistent: (1, & 2) values
             Row(a=2, b=2, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
             Row(a=2, b=2, status=FindMatchRange.Status.START.value, t=2, o1=2, o2=1, v=True),
             Row(a=2, b=2, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=2, v=True),
 
+            # There are two values for the match co so invalid
             Row(a=3, b=3, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
             Row(a=3, b=4, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
 
+            # There are two values for the hero col so invalid
             Row(a=5, b=5, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
             Row(a=6, b=5, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1, v=True)
             ]
