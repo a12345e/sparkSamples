@@ -1,4 +1,4 @@
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row, ArrayType, BooleanType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row, ArrayType, BooleanType, MapType
 import pyspark.sql.functions as F
 from spark.find_match.find_match_ranges import FindMatchRange
 from tests.infra.dataframes_helpers import complete_row_to_schema, compare_dataframes, dataframe_create, RowsBuilder
@@ -184,6 +184,27 @@ def test_mark_end_time_with_ending_reason():
             df=df_a,
             anchor_col= find_match_ranges._hero_col,
             match_col= find_match_ranges._matched_col)
-    df_a.show()
+    rows = [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_time={1: 2}),
+     Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True, start_time=None, end_time={}),
+     Row(a=0, b=0, status=1, t=3, o1=1, o2=1, v=True, start_time=3, end_time={2: 4}),
+     Row(a=0, b=None, status=3, t=4, o1=1, o2=1, v=True, start_time=None, end_time={}),
+     Row(a=0, b=0, status=1, t=5, o1=1, o2=1, v=True, start_time=5, end_time={3: 6}),
+     Row(a=0, b=1, status=1, t=6, o1=1, o2=1, v=True, start_time=6, end_time={3: 7}),
+     Row(a=0, b=0, status=1, t=7, o1=1, o2=1, v=True, start_time=7, end_time={4: 8}),
+     Row(a=0, b=1, status=3, t=8, o1=1, o2=1, v=True, start_time=None, end_time={}),
+     Row(a=0, b=0, status=1, t=9, o1=1, o2=1, v=True, start_time=9, end_time={5: 10}),
+     Row(a=0, b=0, status=1, t=10, o1=1, o2=1, v=True, start_time=10, end_time={})]
+    schema = StructType([
+        StructField('a', IntegerType(), True),
+        StructField('b', IntegerType(), True),
+        StructField('status', IntegerType(), True),
+        StructField('t', IntegerType(), True),
+        StructField('o1', IntegerType(), True),
+        StructField('o2', IntegerType(), True),
+        StructField('v', BooleanType(), True),
+        StructField('start_time', IntegerType(), True),
+        StructField('end_time', MapType(IntegerType(), IntegerType(), True), False)])
+    df_e = RowsBuilder(schema,spark).add_rows(rows).df
+    compare_dataframes(df_e, df_a)
 
 
