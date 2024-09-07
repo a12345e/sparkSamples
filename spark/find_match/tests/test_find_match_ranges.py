@@ -27,7 +27,7 @@ def test_initial_filter_non_nulls_a_col_time_col():
             Row(a=None, t=None)]
     df_a = RowsBuilder(schema,spark).add_rows(rows).df
     df_a = find_match_ranges._initial_filter_non_nulls_hero_and_time_col(df_a)
-    df_e = RowsBuilder(schema,spark).add_row(Row(a="a", t=1)).df
+    df_e = RowsBuilder(schema,spark).add(Row(a="a", t=1)).df
     compare_dataframes(df_e,df_a)
 
 
@@ -92,13 +92,11 @@ def test_invalidate_multiple_match_solutions():
                          StructField("v", BooleanType(), True),
                          ])
     rows = [
-            #these two rows will create one valid start point reducing the other matches
-            Row(a=-1, b=-1, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=1, v=True),
-            Row(a=None, b=-1, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=1, v=True),
 
+            #the most simple case staring point
             Row(a=0,b=0, status=FindMatchRange.Status.START.value,t=1,o1=1, o2=1,v=True),
-            Row(a=0, b=None, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=1, v=True),
 
+            #two rows forming a valid start point together
             Row(a=1,b=1, status=FindMatchRange.Status.START.value,t=1,o1=None, o2=1,v=True),
             Row(a=1, b=1, status=FindMatchRange.Status.START.value, t=1, o1=1, o2=None, v=True),
 
@@ -106,12 +104,12 @@ def test_invalidate_multiple_match_solutions():
             Row(a=1, b=1, status=FindMatchRange.Status.END.value, t=2, o1=1, o2=None, v=True),
             Row(a=1, b=1, status=FindMatchRange.Status.END.value, t=2, o1=None, o2=1, v=True),
 
-            #There is invalidity because the other matches are not consistent: (1, & 2) values
+            #There is invalidity because the other match cols (o1,o2) are not consistent: (1, & 2) values
             Row(a=2, b=2, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
             Row(a=2, b=2, status=FindMatchRange.Status.START.value, t=2, o1=2, o2=1, v=True),
             Row(a=2, b=2, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=2, v=True),
 
-            # There are two values for the match co so invalid
+            # There are two values for the match so invalid
             Row(a=3, b=3, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
             Row(a=3, b=4, status=FindMatchRange.Status.START.value, t=2, o1=1, o2=1,  v=True),
 
@@ -121,19 +119,33 @@ def test_invalidate_multiple_match_solutions():
             ]
     df_a = RowsBuilder(schema, spark).add_rows(rows).df
     df_a = df_a.withColumn(find_match_ranges._start_validity_column, F.lit(True))
-    df_a.show(truncate=False)
-    df_a.printSchema()
     df_a = find_match_ranges._prepare_valid_start_events(
         df=df_a,
         key_cols=['a','status','t'],
         match_cols=['o1','o2','b'])
-    df_a.show()
     df_a = find_match_ranges._prepare_valid_start_events(
          df=df_a,
          key_cols=['b','status','t'],
          match_cols=['o1','o2','a'])
-    df_a.show()
-    # schema = StructType([StructField("id", IntegerType(), True),
-    #                      StructField("col", StringType(), True)])
-    #expected = dataframe_create(rows, schema)
-    #compare_dataframes(expected, df)
+    schema = StructType([StructField('a', IntegerType(), True),
+                         StructField('b', IntegerType(), True),
+                         StructField('status', IntegerType(), True),
+                         StructField('t', IntegerType(), True),
+                         StructField('o1', IntegerType(), True),
+                         StructField('o2', IntegerType(), True),
+                         StructField('v', BooleanType(), False)])
+    rows = [
+    Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+    Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True),
+    Row(a=2, b=2, status=1, t=2, o1=1, o2=1, v=False),
+    Row(a=2, b=2, status=1, t=2, o1=2, o2=1, v=False),
+    Row(a=2, b=2, status=1, t=2, o1=1, o2=2, v=False),
+    Row(a=3, b=3, status=1, t=2, o1=1, o2=1, v=False),
+    Row(a=3, b=4, status=1, t=2, o1=1, o2=1, v=False),
+    Row(a=5, b=5, status=1, t=2, o1=1, o2=1, v=False),
+    Row(a=6, b=5, status=1, t=2, o1=1, o2=1, v=False),
+    Row(a=1, b=1, status=3, t=2, o1=1, o2=None, v=True),
+    Row(a=1, b=1, status=3, t=2, o1=None, o2=1, v=True)
+        ]
+    df_e = RowsBuilder(schema,spark).add_rows(rows).df
+    compare_dataframes(df_e,df_a)

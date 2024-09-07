@@ -91,9 +91,11 @@ class FindMatchRange:
                                      key_cols: List[str],
                                      match_cols: List[str]):
             """
-                For each given key by the key cols there shou
+                In case of start events, collect values for the matched cols for each keys list
+                It is now allowed to have
             :rtype: object
             """
+            assert not set(key_cols).intersection(match_cols), 'It is not allowed to have intersection between mach and key cols'
             f_agg_column = lambda x: f'{x}_values'
             window_spec = Window.partitionBy(*key_cols)
             agg_expressions = [F.collect_set(column).over(window_spec).alias(f_agg_column(column)) for column in match_cols]

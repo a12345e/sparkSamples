@@ -27,9 +27,9 @@ class RowsBuilder:
 
     def add_rows(self, rows: List[Row]):
         for row in rows:
-            self.add_row(row)
+            self.add(row)
         return self
-    def add_row(self, row: Row):
+    def add(self, row: Row):
         self._validate(row)
         if self._anchor:
             row_as_dict = row.asDict().copy()
@@ -120,26 +120,28 @@ def complete_rows_to_schema(rows: List[Row],
         complete_row_to_schema(row, schema, counter)
 
 def compare_dataframes(expected_df: DataFrame, actual_df: DataFrame):
+    report = []
     compare_schemas(expected_df,actual_df)
     distinct_expected_subtract_actual= expected_df.distinct().subtract(actual_df.distinct())
     distinct_actual_subtract_expected = actual_df.distinct().subtract(expected_df.distinct())
     if distinct_actual_subtract_expected.count():
-        print('in actual distinct but not in expected distict:')
-        distinct_actual_subtract_expected.show(truncate=False)
+        report.append('In actual distinct but not in expected distinct:')
+        report.append(distinct_actual_subtract_expected.collect())
     if distinct_expected_subtract_actual.count():
-        print('in expected distinct but not in actual distinct:')
-        distinct_expected_subtract_actual.show(truncate=False)
-    if distinct_actual_subtract_expected.count() or distinct_expected_subtract_actual.count():
-        return
+        report.append('in expected distinct but not in actual distinct:')
+        report.append(distinct_expected_subtract_actual.collect())
+    if report:
+        raise Exception(report)
     expected_subtract_actual= expected_df.subtract(actual_df)
     actual_subtract_expected = actual_df.subtract(expected_df)
     if actual_subtract_expected.count():
-        print('in actual but not in expected:')
-        actual_subtract_expected.show(truncate=False)
+        report.append('in actual but not in expected:')
+        report.append(actual_subtract_expected.collect())
     if expected_subtract_actual.count():
-        print('in actual  but not in expected:')
-        expected_subtract_actual.show(truncate=False)
-
+        report.append('in actual  but not in expected:')
+        report.append(expected_subtract_actual.collect())
+    if report:
+        raise Exception(report)
 def compare_schemas(expected_df: DataFrame, actual_df: DataFrame):
     field_names_df1 = set(expected_df.schema.fieldNames())
     field_names_df2 = set(actual_df.schema.fieldNames())

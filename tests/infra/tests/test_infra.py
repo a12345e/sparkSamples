@@ -42,7 +42,7 @@ def test_rows_builder():
     ])
     anchor = Row( name="Alice", age=25)
     rb = RowsBuilder(schema,session=spark,anchor=anchor, value_generator=1)
-    rb.add_row(Row(height=10.0, id=1)).add_row(Row(id=2, height=13.9))
+    rb.add(Row(height=10.0, id=1)).add(Row(id=2, height=13.9))
     df = rb.df
     df.printSchema()
     df.show()
