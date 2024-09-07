@@ -1,7 +1,7 @@
 from itertools import chain
 from typing import Dict, List
 import pyspark.sql.functions as F
-from pyspark.sql import Window, WindowSpec
+from pyspark.sql import Window, WindowSpec, Column
 import uuid
 
 
@@ -42,7 +42,9 @@ class FindMatchRange:
         assert len(set(given_cols)) == 5+len(other_matches), 'Some columns defied twice!!'
         self._status_map = F.create_map([F.lit(k) for pair in status_namings.items() for k in pair])
 
-
+    @property
+    def start_condition(self) -> Column:
+        return F.col(self._status_col) == FindMatchRange.Status.START.value
     @property
     def validity_column(self):
         return self._start_validity_column
@@ -86,13 +88,20 @@ class FindMatchRange:
                   (F.col(self._matched_col).isNotNull()))
 
 
-    def  _prepare_valid_start_events(self,
-                                     df: DataFrame,
-                                     key_cols: List[str],
-                                     match_cols: List[str]):
+    def  _reduce_matched_cols_and_validate_one_value(self,
+                                                     df: DataFrame,
+                                                     base_condition: Column,
+                                                     key_cols: List[str],
+                                                     match_cols: List[str]):
             """
-                In case of start events, collect values for the matched cols for each keys list
-                It is now allowed to have
+                This function is used for delivering valid start events
+                First is looks into start events only
+                Now for each key list  it collects values for the match columns
+                Each row has a column for validity
+                If we get more than one value for a match column than it is marked invalid
+                If we get one value than this value will be the value for the row
+                For each key list we reduce into one row at the end
+                We also end the function with a distinct call
             :rtype: object
             """
             assert not set(key_cols).intersection(match_cols), 'It is not allowed to have intersection between mach and key cols'
@@ -101,11 +110,10 @@ class FindMatchRange:
             agg_expressions = [F.collect_set(column).over(window_spec).alias(f_agg_column(column)) for column in match_cols]
             df_agg = df.select(df.columns+agg_expressions)
             for col in match_cols:
-                condition = ((F.size(f_agg_column(col))>1) &
-                             (F.col(self._status_col) == FindMatchRange.Status.START.value))
+                condition = base_condition & (F.size(f_agg_column(col))>1) & (F.col(self._status_col) == FindMatchRange.Status.START.value)
                 df_agg = df_agg.withColumn(self._start_validity_column,
                     F.when(condition, F.lit(False)).otherwise(F.col(self._start_validity_column)))
-                condition = (F.col(self._start_validity_column) == F.lit(True)) & (F.size(F.col(f_agg_column(col))) == 1) & (F.col(self._status_col) == FindMatchRange.Status.START.value)
+                condition = base_condition & (F.col(self._start_validity_column) == F.lit(True)) & (F.size(F.col(f_agg_column(col))) == 1)
                 df_agg = df_agg.withColumn(col,F.when(condition,F.col(f_agg_column(col)).getItem(0)).otherwise(F.col(col)))
             df_agg=df_agg.drop(*[f_agg_column(column) for column in match_cols])
             return df_agg.distinct()
@@ -165,13 +173,17 @@ class FindMatchRange:
                     self,
                     df: DataFrame) -> DataFrame:
         df = self._initialize_dataframe(df)
-        df = self._prepare_valid_start_events(df, key_cols=[self._hero_col,
-                                                            self._status_col,
-                                                            self._time_col],
-                                              match_cols=self._other_matches+[self._matched_col])
-        df = self._prepare_valid_start_events(df, key_cols=[self._matched_col,
-                                                            self._status_col,
-                                                            self._time_col],
-                                              match_cols=self._other_matches + [self._hero_col])
+        df = self._reduce_matched_cols_and_validate_one_value(df,
+                                                              base_condition=self.start_condition,
+                                                              key_cols=[self._hero_col,
+                                                                            self._status_col,
+                                                                            self._time_col],
+                                                              match_cols=self._other_matches+[self._matched_col])
+        df = self._reduce_matched_cols_and_validate_one_value(df,
+                                                              base_condition=self.start_condition,
+                                                              key_cols=[self._matched_col,
+                                                                            self._status_col,
+                                                                            self._time_col],
+                                                              match_cols=self._other_matches + [self._hero_col])
         df = self.mark_end_time_with_ending_reason(df)
         return df
