@@ -88,32 +88,32 @@ class FindMatchRange:
                   (F.col(self._matched_col).isNotNull()))
 
 
-    def  _reduce_matched_cols_and_validate_one_value(self,
-                                                     df: DataFrame,
-                                                     base_condition: Column,
-                                                     key_cols: List[str],
-                                                     match_cols: List[str]):
+    def  _reduce_matched_cols_into_one_value_or_invalidate(self,
+                                                           df: DataFrame,
+                                                           base_condition: Column,
+                                                           validity_column: str,
+                                                           key_cols: List[str],
+                                                           match_cols: List[str]):
             """
-                This function is used for delivering valid start events
-                First is looks into start events only
-                Now for each key list  it collects values for the match columns
-                Each row has a column for validity
-                If we get more than one value for a match column than it is marked invalid
-                If we get one value than this value will be the value for the row
-                For each key list we reduce into one row at the end
-                We also end the function with a distinct call
+                This function is used for delivering one row per each key
+                When all the rows for a key produce one value at most for each matched col (all together),
+                then it is marked as valid (not marked invalid actually) and it is reduced
+                into just one row with those values.
+                When there is more than one value then all rows for the key  are just marked as invalid
+                This invalidity is just  for specific purpose, we use it for the purpose of being a start point
+                At the end we just call distinct
             :rtype: object
             """
-            assert not set(key_cols).intersection(match_cols), 'It is not allowed to have intersection between mach and key cols'
+            assert  len(key_cols)+len(match_cols)+len([validity_column]) == len(set(key_cols+match_cols+[validity_column])), 'There is intersection of exclusive columns sets'
             f_agg_column = lambda x: f'{x}_values'
             window_spec = Window.partitionBy(*key_cols)
             agg_expressions = [F.collect_set(column).over(window_spec).alias(f_agg_column(column)) for column in match_cols]
             df_agg = df.select(df.columns+agg_expressions)
             for col in match_cols:
-                condition = base_condition & (F.size(f_agg_column(col))>1) & (F.col(self._status_col) == FindMatchRange.Status.START.value)
-                df_agg = df_agg.withColumn(self._start_validity_column,
-                    F.when(condition, F.lit(False)).otherwise(F.col(self._start_validity_column)))
-                condition = base_condition & (F.col(self._start_validity_column) == F.lit(True)) & (F.size(F.col(f_agg_column(col))) == 1)
+                condition = base_condition & (F.size(f_agg_column(col))>1)
+                df_agg = df_agg.withColumn(validity_column,
+                    F.when(condition, F.lit(False)).otherwise(F.col(validity_column)))
+                condition = base_condition & (F.size(F.col(f_agg_column(col))) == 1)
                 df_agg = df_agg.withColumn(col,F.when(condition,F.col(f_agg_column(col)).getItem(0)).otherwise(F.col(col)))
             df_agg=df_agg.drop(*[f_agg_column(column) for column in match_cols])
             return df_agg.distinct()
@@ -173,17 +173,19 @@ class FindMatchRange:
                     self,
                     df: DataFrame) -> DataFrame:
         df = self._initialize_dataframe(df)
-        df = self._reduce_matched_cols_and_validate_one_value(df,
-                                                              base_condition=self.start_condition,
-                                                              key_cols=[self._hero_col,
+        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
+                                                                    base_condition=self.start_condition,
+                                                                    validity_column=self._start_validity_column,
+                                                                    key_cols=[self._hero_col,
                                                                             self._status_col,
                                                                             self._time_col],
-                                                              match_cols=self._other_matches+[self._matched_col])
-        df = self._reduce_matched_cols_and_validate_one_value(df,
-                                                              base_condition=self.start_condition,
-                                                              key_cols=[self._matched_col,
+                                                                    match_cols=self._other_matches+[self._matched_col])
+        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
+                                                                    base_condition=self.start_condition,
+                                                                    validity_column=self._start_validity_column,
+                                                                    key_cols=[self._matched_col,
                                                                             self._status_col,
                                                                             self._time_col],
-                                                              match_cols=self._other_matches + [self._hero_col])
+                                                                    match_cols=self._other_matches + [self._hero_col])
         df = self.mark_end_time_with_ending_reason(df)
         return df

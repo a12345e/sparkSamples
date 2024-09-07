@@ -119,14 +119,16 @@ def test_invalidate_multiple_match_solutions():
             ]
     df_a = RowsBuilder(schema, spark).add_rows(rows).df
     df_a = df_a.withColumn(find_match_ranges._start_validity_column, F.lit(True))
-    df_a = find_match_ranges._reduce_matched_cols_and_validate_one_value(
+    df_a = find_match_ranges._reduce_matched_cols_into_one_value_or_invalidate(
         df=df_a,
         base_condition=find_match_ranges.start_condition,
+        validity_column=find_match_ranges._start_validity_column,
         key_cols=[find_match_ranges._hero_col,find_match_ranges._status_col,find_match_ranges._time_col],
         match_cols=[find_match_ranges._matched_col] + find_match_ranges._other_matches)
-    df_a = find_match_ranges._reduce_matched_cols_and_validate_one_value(
+    df_a = find_match_ranges._reduce_matched_cols_into_one_value_or_invalidate(
          df=df_a,
         base_condition=find_match_ranges.start_condition,
+        validity_column=find_match_ranges._start_validity_column,
         key_cols=[find_match_ranges._matched_col, find_match_ranges._status_col, find_match_ranges._time_col],
         match_cols=[find_match_ranges._hero_col] + find_match_ranges._other_matches)
     schema = StructType([StructField('a', IntegerType(), True),
