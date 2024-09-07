@@ -158,13 +158,32 @@ def test_mark_end_time_with_ending_reason():
                          StructField("v", BooleanType(), True),
                          ])
     rows = [
-            #the most simple case staring point
+            #same anchor, same match, start-end statuses, time = time+1 => map=(1 -> t=2)
             Row(a=0,b=0, status=FindMatchRange.Status.START.value,t=1,o1=1, o2=1,v=True),
             Row(a=0,b=0, status=FindMatchRange.Status.END.value,t=2,o1=1, o2=1,v=True),
-            ]
+
+            #same anchor, next match=null, start-end statuses, time = time+1 => map=(2 -> t=4)
+            Row(a=0,b=0, status=FindMatchRange.Status.START.value,t=3,o1=1, o2=1,v=True),
+            Row(a=0,b=None, status=FindMatchRange.Status.END.value,t=4,o1=1, o2=1,v=True),
+
+            # same anchor, next match different, start-start statuses, time = time+1 => map=(3 -> t=6)
+            Row(a=0, b=0, status=FindMatchRange.Status.START.value, t=5, o1=1, o2=1, v=True),
+            Row(a=0, b=1, status=FindMatchRange.Status.START.value, t=6, o1=1, o2=1, v=True),
+
+            # same anchor, next match different, start-end statuses, time = time+1 => map=(4 -> t=8)
+            Row(a=0, b=0, status=FindMatchRange.Status.START.value, t=7, o1=1, o2=1, v=True),
+            Row(a=0, b=1, status=FindMatchRange.Status.END.value, t=8, o1=1, o2=1, v=True),
+            # #
+            # # same anchor, next match different, start-end statuses, time = time+1 => map=(5 -> t=10)
+            Row(a=0, b=0, status=FindMatchRange.Status.START.value, t=9, o1=1, o2=1, v=True),
+            Row(a=0, b=0, status=FindMatchRange.Status.START.value, t=10, o1=1, o2=1, v=True),
+
+    ]
     df_a = RowsBuilder(schema, spark).add_rows(rows).df
     df_a = find_match_ranges.mark_end_time_with_ending_reason(
             df=df_a,
             anchor_col= find_match_ranges._hero_col,
             match_col= find_match_ranges._matched_col)
     df_a.show()
+
+

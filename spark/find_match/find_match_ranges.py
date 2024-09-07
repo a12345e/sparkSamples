@@ -19,10 +19,9 @@ class FindMatchRange:
     class EndingTransactionReason(Enum):
         NEXT_END_FOR_SAME_MATCH = 1 # the normal start end events for the same match
         NEXT_END_NULL = 2
-        NEXT_START_NULL = 3
-        NEXT_START_DIFFERENT_MATCH = 4
-        NEXT_END_DIFFERENT_MATCH = 5
-        NEXT_START_FOR_SAME_MATCH = 6
+        NEXT_START_DIFFERENT_MATCH = 3
+        NEXT_END_DIFFERENT_MATCH = 4
+        NEXT_START_FOR_SAME_MATCH = 5
 
     def __init__(self,
                  hero_col: str,
@@ -177,18 +176,6 @@ class FindMatchRange:
                                cond=same_anchor & next_match_is_null & end_after_start_cond,
                                output_col=end_time_map_reason4time_col,
                                map_key=self.EndingTransactionReason.NEXT_END_NULL.value,
-                               window_spec=window_spec))
-        df = df.withColumn(end_time_map_reason4time_col,
-                           self._build_transaction_end_when(
-                               cond=same_anchor & next_match_is_null & end_after_start_cond,
-                               output_col=end_time_map_reason4time_col,
-                               map_key=self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value,
-                               window_spec=window_spec))
-        df = df.withColumn(end_time_map_reason4time_col,
-                           self._build_transaction_end_when(
-                               cond=same_anchor & next_match_is_null & start_after_start_cond,
-                               output_col=end_time_map_reason4time_col,
-                               map_key=self.EndingTransactionReason.NEXT_START_NULL.value,
                                window_spec=window_spec))
         df = df.withColumn(end_time_map_reason4time_col,
                            self._build_transaction_end_when(
