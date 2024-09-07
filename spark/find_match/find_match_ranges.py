@@ -17,11 +17,12 @@ class FindMatchRange:
 
 
     class EndingTransactionReason(Enum):
-        MATCH_EXPECTED_END = 1
-        MATCH_END_FOR_UNEXPECTED_MATCH = 2
-        MATCH_END_FOR_UNEXPECTED_NULL = 3
-        MATCH_UNEXPECTED_START_DIFFERENT_MATCH = 4
-        MATCH_UNEXPECTED_START_SAME_MATCH = 5
+        NEXT_END_FOR_SAME_MATCH = 1 # the normal start end events for the same match
+        NEXT_END_NULL = 2
+        NEXT_START_NULL = 3
+        NEXT_START_DIFFERENT_MATCH = 4
+        NEXT_END_DIFFERENT_MATCH = 5
+        NEXT_START_FOR_SAME_MATCH = 6
 
     def __init__(self,
                  hero_col: str,
@@ -95,14 +96,20 @@ class FindMatchRange:
                                                            key_cols: List[str],
                                                            match_cols: List[str]):
             """
-                This function is used for delivering one row per each key
-                When all the rows for a key produce one value at most for each matched col (all together),
-                then it is marked as valid (not marked invalid actually) and it is reduced
-                into just one row with those values.
-                When there is more than one value then all rows for the key  are just marked as invalid
-                This invalidity is just  for specific purpose, we use it for the purpose of being a start point
-                At the end we just call distinct
-            :rtype: object
+            This function is used for delivering one row per each key
+            When all the rows for a key produce one value at most for each matched col (all together),
+            then it is marked as valid (not marked invalid actually) and it is reduced
+            into just one row with those values.
+            When there is more than one value then all rows for the key  are just marked as invalid
+            This invalidity is just  for specific purpose, we use it for the purpose of being a start point
+            At the end we just call distinct
+            :param df: DataFrame
+            :param base_condition: filter the rows of relevance
+            :param validity_column:  The column where to mark rows of relevance as invalid
+            :param key_cols: The cols making the key - valid rows will be reduced into one row for each key
+            :param match_cols: The columns where we check validity and we reduce into one value
+            :return:
+            :rtype: DataFrame
             """
             assert  len(key_cols)+len(match_cols)+len([validity_column]) == len(set(key_cols+match_cols+[validity_column])), 'There is intersection of exclusive columns sets'
             f_agg_column = lambda x: f'{x}_values'
@@ -129,44 +136,63 @@ class FindMatchRange:
             window_spec: WindowSpec):
             end_after_start_cond = ((F.col(self._status_col) == self.Status.END.value) &
                                    (F.lag(self._status_col, 1).over(window_spec) == self.Status.START))
-            time_is_after = F.col(self._time_col) > F.lag(self._time_col, 1).over(window_spec)
+            time_is_after = F.col(self._time_col) >= F.lag(self._time_col, 1).over(window_spec)
             return end_after_start_cond & time_is_after
 
     def mark_end_time_with_ending_reason(
                                 self,
                                 df: DataFrame,
-                                partition_by_col: str):
+                                anchor_col: str,
+                                matches_col: str):
+        """
+        Notice that input is that the match for each start is not null for both elements
+        Notice that also there is one row only for start  of a match at specific time
+        :param anchor_col:
+        :param df:
+        :param matched_col:
+        :return:
+        """
         start_time_col = 'start_time'
-        end_time_map_reason4time_col = 'end_time'
+        end_time_map_reason4time_col: str = 'end_time'
 
-        window_spec: WindowSpec = (Window.partitionBy(partition_by_col).
-                               orderBy(self._time_col, self._matched_col, self._status_col))
-        start_after_start_cond = ((F.col(self._status_col) == self.Status.START.value) &
-                              (F.lead(self._status_col, 1).over(window_spec) == self.Status.START))
-        end_after_start_cond = ((F.col(self._status_col) == self.Status.START.value) &
-                              (F.lead(self._status_col, 1).over(window_spec) == self.Status.END))
+        window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(self._time_col, matches_col, self._status_col)
+        curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
+        next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START
+        next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END
+        start_after_start_cond = curren_status_is_start & next_status_is_start
+        end_after_start_cond = curren_status_is_start & next_status_is_end
         next_match_is_null = F.lead(self._matched_col, 1).over(window_spec).isNull()
-        next_match_is_not_null = ~next_match_is_null
         same_match_col = F.col(self._matched_col) == F.lead(self._matched_col, 1)
-        match_broken = ~same_match_col
+        match_broken = ~same_match_col & F.lead(self._matched_col, 1).isNotNull()
 
-        df = df.withColumn(start_time_col, F.when((start_after_start_cond) | (end_after_start_cond),
-                                         F.col(self._time_col)))
-        map_expected = F.create_map(F.lit(self.EndingTransactionReason.MATCH_EXPECTED_END), F.col(self._time_col))
+        df = df.withColumn(start_time_col, F.when(curren_status_is_start, F.col(self._time_col)))
+
+        #The most classic case of (start,end) events for the same matched couple
         df = df.withColumn(end_time_map_reason4time_col, F.when(
-            end_after_start_cond & same_match_col, map_expected))
-        map_end_for_unexpected_match = F.create_map(F.lit(self.EndingTransactionReason.MATCH_END_FOR_UNEXPECTED_MATCH), F.col(self._time_col))
+            end_after_start_cond & same_match_col,
+            F.map_concat(
+                end_time_map_reason4time_col,
+                F.create_map(F.lit(self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH), F.col(self._time_col)))))
         df = df.withColumn(end_time_map_reason4time_col, F.when(
-            end_after_start_cond & match_broken & next_match_is_not_null, map_end_for_unexpected_match))
-        map_end_for_unexpected_match_null = F.create_map(F.lit(self.EndingTransactionReason.MATCH_END_FOR_UNEXPECTED_NULL), F.col(self._time_col))
+            end_after_start_cond & match_broken,
+            F.create_map(F.lit(self.EndingTransactionReason.NEXT_END_NULL), F.col(self._time_col))))
+
         df = df.withColumn(end_time_map_reason4time_col, F.when(
-            end_after_start_cond & match_broken & next_match_is_not_null, map_end_for_unexpected_match_null))
-        map_start_for_unexpected_match = F.create_map(F.lit(self.EndingTransactionReason.MATCH_UNEXPECTED_START_DIFFERENT_MATCH), F.col(self._time_col))
+            start_after_start_cond & next_match_is_null,
+            F.create_map(F.lit(self.EndingTransactionReason.NEXT_START_NULL), F.col(self._time_col))))
+
         df = df.withColumn(end_time_map_reason4time_col, F.when(
-            start_after_start_cond & match_broken & next_match_is_not_null, map_start_for_unexpected_match))
-        map_start_for_unexpected_same_match = F.create_map(F.lit(self.EndingTransactionReason.MATCH_UNEXPECTED_START_SAME_MATCH), F.col(self._time_col))
+            start_after_start_cond & match_broken,
+            F.create_map(F.lit(self.EndingTransactionReason.NEXT_START_DIFFERENT_MATCH), F.col(self._time_col))))
+
         df = df.withColumn(end_time_map_reason4time_col, F.when(
-            start_after_start_cond & same_match_col & next_match_is_not_null, map_start_for_unexpected_same_match))
+            end_after_start_cond & match_broken,
+            F.create_map(F.lit(self.EndingTransactionReason.NEXT_END_DIFFERENT_MATCH), F.col(self._time_col))))
+
+        df = df.withColumn(end_time_map_reason4time_col, F.when(
+            start_after_start_cond & same_match_col,
+            F.create_map(F.lit(self.EndingTransactionReason.NEXT_START_FOR_SAME_MATCH), F.col(self._time_col))))
+
         return df
 
     def prepare_matches(
@@ -187,5 +213,6 @@ class FindMatchRange:
                                                                             self._status_col,
                                                                             self._time_col],
                                                                     match_cols=self._other_matches + [self._hero_col])
-        df = self.mark_end_time_with_ending_reason(df)
-        return df
+        df = self.mark_end_time_with_ending_reason(df, anchor_col=self._hero_col, matches_col=self._matched_col)
+        df = self.mark_end_time_with_ending_reason(df, matches_col=self._hero_col, anchor_col=self._hero_col)
+        return df.distinct()

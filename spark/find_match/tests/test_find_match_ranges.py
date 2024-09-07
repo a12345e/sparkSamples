@@ -82,7 +82,7 @@ def test_avoid_b_col_null_on_start_status():
 
 
 
-def test_invalidate_multiple_match_solutions():
+def test__reduce_matched_cols_into_one_value_or_invalidate():
     schema = StructType([StructField("a", IntegerType(), True),
                          StructField("b", IntegerType(), True),
                          StructField("status", IntegerType(), True),
