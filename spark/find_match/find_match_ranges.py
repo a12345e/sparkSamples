@@ -55,18 +55,10 @@ class FindMatchRange:
                                                 self._time_col]+self._other_matches)
         assert len(set(df.columns).intersection(mandatory_columns))  == len(mandatory_columns)
         df = self._initial_filter_non_nulls_hero_and_time_col(df)
-        df.show()
         df = df.withColumn(self._start_validity_column, F.lit(True))
-        df.show()
         df = self._enumerate_status_column(df)
-        df.show()
-        print('stage-1')
         df = self._avoid_match_col_null_on_start_status(df)
-        print('stage-2')
-        df.show()
         df = self._keep_only_start_end_status(df)
-        print('stage-3')
-        df.show()
         return df
 
     @staticmethod
@@ -131,68 +123,91 @@ class FindMatchRange:
     def _create_transaction_window_partitioned_by_matched(self) -> WindowSpec:
         return Window.partitionBy(self._matched_col).orderBy(self._time_col, self._hero_col, self._status_col)
 
-    def _create_condition_end_after_start(
-            self,
-            window_spec: WindowSpec):
-            end_after_start_cond = ((F.col(self._status_col) == self.Status.END.value) &
-                                   (F.lag(self._status_col, 1).over(window_spec) == self.Status.START))
-            time_is_after = F.col(self._time_col) >= F.lag(self._time_col, 1).over(window_spec)
-            return end_after_start_cond & time_is_after
-
+    def _build_transaction_end_when(self,cond: Column,
+                                   output_col: str,
+                                   map_key: int,
+                                   window_spec: WindowSpec):
+        return F.when(cond, F.map_concat(F.col(output_col),
+                            F.create_map(
+                                F.lit(map_key),
+                                F.lead(self._time_col, 1).over(window_spec)))
+               ).otherwise(F.col(output_col))
     def mark_end_time_with_ending_reason(
                                 self,
                                 df: DataFrame,
                                 anchor_col: str,
-                                matches_col: str):
+                                match_col: str):
         """
         Notice that input is that the match for each start is not null for both elements
         Notice that also there is one row only for start  of a match at specific time
-        :param anchor_col:
         :param df:
-        :param matched_col:
-        :return:
+        :param anchor_col:
+        :param match_col:
+        :return: DataFrame
         """
         start_time_col = 'start_time'
         end_time_map_reason4time_col: str = 'end_time'
-
-        window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(self._time_col, matches_col, self._status_col)
+        window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(self._time_col, match_col, self._status_col)
+        same_anchor =  F.col(anchor_col) == F.lead(anchor_col, 1).over(window_spec)
         curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
-        next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START
-        next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END
-        start_after_start_cond = curren_status_is_start & next_status_is_start
-        end_after_start_cond = curren_status_is_start & next_status_is_end
-        next_match_is_null = F.lead(self._matched_col, 1).over(window_spec).isNull()
-        same_match_col = F.col(self._matched_col) == F.lead(self._matched_col, 1)
-        match_broken = ~same_match_col & F.lead(self._matched_col, 1).isNotNull()
+        curren_status_is_valid_start = curren_status_is_start & (F.col(self._start_validity_column) == F.lit(True))
+        next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START.value
+        next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END.value
+        start_after_start_cond = curren_status_is_valid_start & next_status_is_start
+        end_after_start_cond = curren_status_is_valid_start & next_status_is_end
+        next_match_is_null = F.lead(match_col, 1).over(window_spec).isNull()
+        same_match_col = F.col(match_col) == F.lead(match_col, 1).over(window_spec)
+        match_broken = ~same_match_col & F.lead(match_col, 1).over(window_spec).isNotNull()
 
         df = df.withColumn(start_time_col, F.when(curren_status_is_start, F.col(self._time_col)))
-
+        if not end_time_map_reason4time_col in df.columns:
+            df = df.withColumn(end_time_map_reason4time_col,F.create_map())
         #The most classic case of (start,end) events for the same matched couple
-        df = df.withColumn(end_time_map_reason4time_col, F.when(
-            end_after_start_cond & same_match_col,
-            F.map_concat(
-                end_time_map_reason4time_col,
-                F.create_map(F.lit(self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH), F.col(self._time_col)))))
-        df = df.withColumn(end_time_map_reason4time_col, F.when(
-            end_after_start_cond & match_broken,
-            F.create_map(F.lit(self.EndingTransactionReason.NEXT_END_NULL), F.col(self._time_col))))
 
-        df = df.withColumn(end_time_map_reason4time_col, F.when(
-            start_after_start_cond & next_match_is_null,
-            F.create_map(F.lit(self.EndingTransactionReason.NEXT_START_NULL), F.col(self._time_col))))
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & same_match_col & end_after_start_cond,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value,
+                               window_spec=window_spec))
 
-        df = df.withColumn(end_time_map_reason4time_col, F.when(
-            start_after_start_cond & match_broken,
-            F.create_map(F.lit(self.EndingTransactionReason.NEXT_START_DIFFERENT_MATCH), F.col(self._time_col))))
 
-        df = df.withColumn(end_time_map_reason4time_col, F.when(
-            end_after_start_cond & match_broken,
-            F.create_map(F.lit(self.EndingTransactionReason.NEXT_END_DIFFERENT_MATCH), F.col(self._time_col))))
-
-        df = df.withColumn(end_time_map_reason4time_col, F.when(
-            start_after_start_cond & same_match_col,
-            F.create_map(F.lit(self.EndingTransactionReason.NEXT_START_FOR_SAME_MATCH), F.col(self._time_col))))
-
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & next_match_is_null & end_after_start_cond,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_END_NULL.value,
+                               window_spec=window_spec))
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & next_match_is_null & end_after_start_cond,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value,
+                               window_spec=window_spec))
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & next_match_is_null & start_after_start_cond,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_START_NULL.value,
+                               window_spec=window_spec))
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & match_broken & start_after_start_cond,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_START_DIFFERENT_MATCH.value,
+                               window_spec=window_spec))
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & match_broken & end_after_start_cond,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_END_DIFFERENT_MATCH.value,
+                               window_spec=window_spec))
+        df = df.withColumn(end_time_map_reason4time_col,
+                           self._build_transaction_end_when(
+                               cond=same_anchor & start_after_start_cond & same_match_col,
+                               output_col=end_time_map_reason4time_col,
+                               map_key=self.EndingTransactionReason.NEXT_START_FOR_SAME_MATCH.value,
+                               window_spec=window_spec))
         return df
 
     def prepare_matches(
@@ -213,6 +228,6 @@ class FindMatchRange:
                                                                             self._status_col,
                                                                             self._time_col],
                                                                     match_cols=self._other_matches + [self._hero_col])
-        df = self.mark_end_time_with_ending_reason(df, anchor_col=self._hero_col, matches_col=self._matched_col)
-        df = self.mark_end_time_with_ending_reason(df, matches_col=self._hero_col, anchor_col=self._hero_col)
+        df = self.mark_end_time_with_ending_reason(df, anchor_col=self._hero_col, match_col=self._matched_col)
+        df = self.mark_end_time_with_ending_reason(df, match_col=self._hero_col, anchor_col=self._hero_col)
         return df.distinct()

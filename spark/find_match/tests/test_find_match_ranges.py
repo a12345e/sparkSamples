@@ -131,13 +131,6 @@ def test__reduce_matched_cols_into_one_value_or_invalidate():
         validity_column=find_match_ranges._start_validity_column,
         key_cols=[find_match_ranges._matched_col, find_match_ranges._status_col, find_match_ranges._time_col],
         match_cols=[find_match_ranges._hero_col] + find_match_ranges._other_matches)
-    schema = StructType([StructField('a', IntegerType(), True),
-                         StructField('b', IntegerType(), True),
-                         StructField('status', IntegerType(), True),
-                         StructField('t', IntegerType(), True),
-                         StructField('o1', IntegerType(), True),
-                         StructField('o2', IntegerType(), True),
-                         StructField('v', BooleanType(), False)])
     rows = [
     Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
     Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True),
@@ -153,3 +146,25 @@ def test__reduce_matched_cols_into_one_value_or_invalidate():
         ]
     df_e = RowsBuilder(schema,spark).add_rows(rows).df
     compare_dataframes(df_e,df_a)
+
+
+def test_mark_end_time_with_ending_reason():
+    schema = StructType([StructField("a", IntegerType(), True),
+                         StructField("b", IntegerType(), True),
+                         StructField("status", IntegerType(), True),
+                         StructField("t", IntegerType(), True),
+                         StructField("o1", IntegerType(), True),
+                         StructField("o2", IntegerType(), True),
+                         StructField("v", BooleanType(), True),
+                         ])
+    rows = [
+            #the most simple case staring point
+            Row(a=0,b=0, status=FindMatchRange.Status.START.value,t=1,o1=1, o2=1,v=True),
+            Row(a=0,b=0, status=FindMatchRange.Status.END.value,t=2,o1=1, o2=1,v=True),
+            ]
+    df_a = RowsBuilder(schema, spark).add_rows(rows).df
+    df_a = find_match_ranges.mark_end_time_with_ending_reason(
+            df=df_a,
+            anchor_col= find_match_ranges._hero_col,
+            match_col= find_match_ranges._matched_col)
+    df_a.show()
