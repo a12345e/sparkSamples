@@ -9,11 +9,11 @@ class RowsBuilder:
     def __init__(self, schema: StructType,
                  session: SparkSession,
                  anchor: DataFrame=None,
-                 value_generator: int=None):
+                 counter: int=None):
         self._schema = schema
         self._session = session
         self._rows: List = []
-        self._counter = value_generator
+        self._counter = counter
         self._anchor = anchor
 
     def _validate(self, row: Row):
@@ -105,10 +105,6 @@ def complete_row_to_schema(row: Row,
         else:
             completed_row[field.name] = None
     return Row(*[completed_row[field] for field in schema.fieldNames()])
-
-def reorder_row(row:Row, schema: StructType):
-    d = row.asDict()
-    return Row(*[d[field] for field in schema.fieldNames()])
 
 def complete_rows_to_schema(rows: List[Row],
                            schema: StructType,

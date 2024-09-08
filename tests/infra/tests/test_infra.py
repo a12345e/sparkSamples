@@ -40,7 +40,7 @@ def test_rows_builder():
         StructField("birthday", TimestampType(), True),
         StructField("age", IntegerType(), True)
     ])
-    rb = RowsBuilder(schema,session=spark,anchor= Row( name="Alice", age=25), value_generator=1)
+    rb = RowsBuilder(schema, session=spark, anchor= Row( name="Alice", age=25), counter=1)
     rb.add(Row(height=10.0, id=1)).add(Row(id=2, height=13.9))
     df = rb.df
     df.printSchema()
