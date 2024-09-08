@@ -222,3 +222,38 @@ def test_mark_end_time_with_ending_reason():
     compare_dataframes(df_e, df_a)
 
 
+def test_get_close_transactions():
+    schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),
+                         StructField('status', StringType(), True), StructField('t', IntegerType(), True),
+                         StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True),
+                         StructField('v', BooleanType(), True), StructField('start_time', IntegerType(), True),
+                         StructField('end_reason', StringType(), True), StructField('end_time', IntegerType(), True)])
+    rows = [
+        Row(a=0, b=0, status='start', t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',
+            end_time=2),
+        Row(a=0, b=0, status='start', t=3, o1=1, o2=1, v=True, start_time=3, end_reason='next_match_end_null',
+            end_time=4),
+        Row(a=0, b=0, status='start', t=3, o1=1, o2=1, v=True, start_time=3, end_reason='next_match_start', end_time=5),
+        Row(a=0, b=0, status='start', t=5, o1=1, o2=1, v=True, start_time=5, end_reason='next_match_start_different',
+            end_time=6),
+        Row(a=0, b=0, status='start', t=5, o1=1, o2=1, v=True, start_time=5, end_reason='next_match_start', end_time=7),
+        Row(a=0, b=0, status='start', t=7, o1=1, o2=1, v=True, start_time=7, end_reason='next_match_end_different',
+            end_time=8),
+        Row(a=0, b=0, status='start', t=7, o1=1, o2=1, v=True, start_time=7, end_reason='next_match_start', end_time=9),
+        Row(a=0, b=0, status='start', t=9, o1=1, o2=1, v=True, start_time=9, end_reason='next_match_start',
+            end_time=10),
+        Row(a=0, b=1, status='start', t=6, o1=1, o2=1, v=True, start_time=6, end_reason='next_match_start_different',
+            end_time=7),
+        Row(a=0, b=1, status='start', t=6, o1=1, o2=1, v=True, start_time=6, end_reason='next_match_end_same',
+            end_time=8),
+        Row(a=1, b=1, status='start', t=20, o1=1, o2=1, v=True, start_time=20, end_reason='next_match_end_different',
+            end_time=21),
+        Row(a=0, b=None, status='end', t=4, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+        Row(a=0, b=0, status='end', t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+        Row(a=0, b=0, status='start', t=10, o1=1, o2=1, v=True, start_time=10, end_reason=None, end_time=None),
+        Row(a=0, b=1, status='end', t=8, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+        Row(a=2, b=1, status='end', t=21, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+    ]
+    df_a = RowsBuilder(schema, spark).add_rows(rows).df
+    df_a = find_match_ranges.get_close_transactions(df_a)
+    print_dataframe_schema_and_rows(df_a)

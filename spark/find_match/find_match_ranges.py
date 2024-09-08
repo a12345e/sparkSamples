@@ -61,6 +61,11 @@ class FindMatchRange:
     def validity_column(self):
         return self._start_validity_column
     def _initialize_dataframe(self,df: DataFrame) -> DataFrame:
+        """
+        This does cleanup of rows we not like and modification of the status column values to our wording
+        :param df:
+        :return:
+        """
         mandatory_columns = set([self._hero_col,
                                                 self._matched_col,self._status_col,
                                                 self._time_col]+self._other_matches)
@@ -91,6 +96,34 @@ class FindMatchRange:
         return df.where((F.col(self._status_col) != self.Status.START.value) |
                   (F.col(self._matched_col).isNotNull()))
 
+
+    def prepare_valid_transaction_start_events(self, df):
+        """
+        Well we look into start events with key of anchor,match,status,other_matches[]
+        We make sure that if aggregating the match+other_matches columns we get at most one value
+        We do that through two ways of choosing the keys replacing the match col with the anchor col
+        This leads us to distinction keys that form a valid start point
+        If it is a valid key then we take the aggregated value of the other_matches columns as their value
+        so this will become one aggregate row marked as valid start in a new column.
+        Other rows are marked invalid  start rows. Yet they are not removed
+        :param df:
+        :return:
+        """
+        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
+                                                                    base_condition=self.start_condition,
+                                                                    validity_column=self._start_validity_column,
+                                                                    key_cols=[self._hero_col,
+                                                                            self._status_col,
+                                                                            self._time_col],
+                                                                    match_cols=self._other_matches+[self._matched_col])
+        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
+                                                                    base_condition=self.start_condition,
+                                                                    validity_column=self._start_validity_column,
+                                                                    key_cols=[self._matched_col,
+                                                                            self._status_col,
+                                                                            self._time_col],
+                                                                    match_cols=self._other_matches + [self._hero_col])
+        return df
 
     def  _reduce_matched_cols_into_one_value_or_invalidate(self,
                                                            df: DataFrame,
@@ -218,23 +251,21 @@ class FindMatchRange:
         return df.distinct()
 
 
+
     def prepare_matches(
                     self,
                     df: DataFrame) -> DataFrame:
         df = self._initialize_dataframe(df)
-        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
-                                                                    base_condition=self.start_condition,
-                                                                    validity_column=self._start_validity_column,
-                                                                    key_cols=[self._hero_col,
-                                                                            self._status_col,
-                                                                            self._time_col],
-                                                                    match_cols=self._other_matches+[self._matched_col])
-        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
-                                                                    base_condition=self.start_condition,
-                                                                    validity_column=self._start_validity_column,
-                                                                    key_cols=[self._matched_col,
-                                                                            self._status_col,
-                                                                            self._time_col],
-                                                                    match_cols=self._other_matches + [self._hero_col])
+        df = self.prepare_valid_transaction_start_events(df)
         df = self._mark_end_time_with_ending_reason(df, match_columns=[self._hero_col, self._matched_col])
+        return  df.distinct()
+
+
+    def get_close_transactions(self, df):
+        df = df.where(F.col(self.END_TIME_COL).isNotNull())
+        window_spec:WindowSpec = Window.partitionBy(self._hero_col,self._matched_col,self.START_TIME_COL).orderBy(self._time_col)
+        df = df.withColumn('final_end_time',F.first(self.END_TIME_COL).over(window_spec))
+        df = df.withColumn('final_end_reason',F.first(self.END_REASON_COL).over(window_spec)).drop('end_time','end_reason')
+        df = df.where(F.col('final_end_time') == F.col('end_time')).orderBy('start_time')
         return df.distinct()
+
