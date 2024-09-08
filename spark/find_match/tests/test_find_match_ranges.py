@@ -256,4 +256,27 @@ def test_get_close_transactions():
     ]
     df_a = RowsBuilder(schema, spark).add_rows(rows).df
     df_a = find_match_ranges.get_close_transactions(df_a)
-    print_dataframe_schema_and_rows(df_a)
+    schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),
+                         StructField('status', StringType(), True), StructField('t', IntegerType(), True),
+                         StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True),
+                         StructField('v', BooleanType(), True), StructField('start_time', IntegerType(), True),
+                         StructField('final_end_time', IntegerType(), True),
+                         StructField('final_end_reason', StringType(), True)])
+    rows = [
+        Row(a=0, b=0, status='start', t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=2,
+            final_end_reason='next_match_end_same'),
+        Row(a=0, b=0, status='start', t=3, o1=1, o2=1, v=True, start_time=3, final_end_time=4,
+            final_end_reason='next_match_end_null'),
+        Row(a=0, b=0, status='start', t=5, o1=1, o2=1, v=True, start_time=5, final_end_time=6,
+            final_end_reason='next_match_start_different'),
+        Row(a=0, b=0, status='start', t=7, o1=1, o2=1, v=True, start_time=7, final_end_time=8,
+            final_end_reason='next_match_end_different'),
+        Row(a=0, b=0, status='start', t=9, o1=1, o2=1, v=True, start_time=9, final_end_time=10,
+            final_end_reason='next_match_start'),
+        Row(a=0, b=1, status='start', t=6, o1=1, o2=1, v=True, start_time=6, final_end_time=7,
+            final_end_reason='next_match_start_different'),
+        Row(a=1, b=1, status='start', t=20, o1=1, o2=1, v=True, start_time=20, final_end_time=21,
+            final_end_reason='next_match_end_different'),
+    ]
+    df_e = RowsBuilder(schema, spark).add_rows(rows).df
+    compare_dataframes(df_a, df_e)
