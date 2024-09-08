@@ -10,18 +10,24 @@ from enum import Enum
 
 class FindMatchRange:
     class Status(Enum):
-        INVALID = 0
-        START = 1
-        UPDATE = 2
-        END = 3
+        INVALID = 'invalid'
+        START = 'start'
+        UPDATE = 'update'
+        END = 'end'
 
 
     class EndingTransactionReason(Enum):
-        NEXT_END_FOR_SAME_MATCH = 1 # the normal start end events for the same match
-        NEXT_END_NULL = 2
-        NEXT_START_DIFFERENT_MATCH = 3
-        NEXT_END_DIFFERENT_MATCH = 4
-        NEXT_START_FOR_SAME_MATCH = 5
+        NEXT_END_FOR_SAME_MATCH = 'next_match_end_same' # the normal start end events for the same match
+        NEXT_END_NULL = 'next_match_end_null'
+        NEXT_START_DIFFERENT_MATCH = 'next_match_start_different'
+        NEXT_END_DIFFERENT_MATCH = 'next_match_end_different'
+        NEXT_START_FOR_SAME_MATCH = 'next_match_start'
+
+    START_TIME_COL = 'start_time'
+    END_TIME_COL = 'end_time'
+    END_REASON_COL = 'end_reason'
+    END_TIME_MAP_COL = 'end_time_map'
+    END_TIME_MAP_ARRAY_COL = 'end_time_map_array'
 
     def __init__(self,
                  hero_col: str,
@@ -132,28 +138,51 @@ class FindMatchRange:
                                    output_col: str,
                                    map_key: int,
                                    window_spec: WindowSpec):
-        return F.when(cond, F.map_concat(F.col(output_col),
-                            F.create_map(
-                                F.lit(map_key),
-                                F.lead(self._time_col, 1).over(window_spec)))
+        """
+            This is for inserting a Map element into output_cl
+        :param cond: The condition when
+        :param output_col:  where to ad the Map element
+        :param map_key: The key for the map (literal)
+        :param window_spec: The Window spec we use
+        :return:
+        """
+        return F.when(cond, F.concat(F.col(output_col),
+                            F.array(F.struct(F.lit(map_key).alias(self.END_REASON_COL),F.lead(self._time_col, 1).over(window_spec).alias(self.END_TIME_COL))))
                ).otherwise(F.col(output_col))
-    def mark_end_time_with_ending_reason(
+    def _mark_end_time_with_ending_reason(
+                                self,
+                                df: DataFrame,
+                                match_columns: List[str]) -> DataFrame:
+
+        assert self.END_TIME_MAP_COL not in df.columns, f'{self.END_TIME_MAP_COL} is temporary columns we not expect to see'
+        assert self.END_TIME_MAP_ARRAY_COL not in df.columns, f'{self.END_TIME_MAP_ARRAY_COL} is temporary columns we not expect to see'
+        assert len(match_columns) == 2, f' We see {len(match_columns)} instead of two column'
+        for col in match_columns:
+            assert col in df.columns
+        df = df.withColumn(self.END_TIME_MAP_ARRAY_COL, F.array())
+        df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[0],match_col=match_columns[1])
+        df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[1],match_col=match_columns[0])
+        df = df.select("*",F.explode_outer(F.col( self.END_TIME_MAP_ARRAY_COL)).alias(self.END_TIME_MAP_COL))
+        df = df.withColumn(self.END_REASON_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_REASON_COL))
+        df = df.withColumn(self.END_TIME_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_TIME_COL))
+        return df.drop( self.END_TIME_MAP_COL, self.END_TIME_MAP_ARRAY_COL ).distinct()
+
+
+    def _mark_end_time_with_ending_reason_one_direction(
                                 self,
                                 df: DataFrame,
                                 anchor_col: str,
                                 match_col: str):
         """
-        Notice that input is that the match for each start is not null for both elements
+        Notice that input is that the match for each start we have not nul anchor and match values
         Notice that also there is one row only for start  of a match at specific time
         :param df:
         :param anchor_col:
         :param match_col:
         :return: DataFrame
         """
-        start_time_col = 'start_time'
-        end_time_map_reason4time_col: str = 'end_time_map'
-
         window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(self._time_col, match_col, self._status_col)
+
         same_anchor =  F.col(anchor_col) == F.lead(anchor_col, 1).over(window_spec)
         next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START.value
         next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END.value
@@ -166,10 +195,7 @@ class FindMatchRange:
         start_after_start_cond = curren_status_is_valid_start & next_status_is_start
         end_after_start_cond = curren_status_is_valid_start & next_status_is_end
 
-        df = df.withColumn(start_time_col, F.when(curren_status_is_start, F.col(self._time_col)))
-        if not end_time_map_reason4time_col in df.columns:
-            df = df.withColumn(end_time_map_reason4time_col,F.create_map())
-        #The most classic case of (start,end) events for the same matched couple
+        df = df.withColumn(self.START_TIME_COL, F.when(curren_status_is_start, F.col(self._time_col)))
 
         ending_reason_ton_con_map = {
             self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH : same_anchor & same_match_col & end_after_start_cond,
@@ -182,15 +208,14 @@ class FindMatchRange:
             if reason not in ending_reason_ton_con_map.keys():
                 raise Exception(f"reason {reason} not in our support")
             if reason in ending_reason_ton_con_map.keys():
-                df = df.withColumn(end_time_map_reason4time_col,
+                df = df.withColumn( self.END_TIME_MAP_ARRAY_COL,
                            self._build_transaction_end_when(
                                cond=ending_reason_ton_con_map[reason],
-                               output_col=end_time_map_reason4time_col,
+                               output_col= self.END_TIME_MAP_ARRAY_COL,
                                map_key=reason.value,
                                window_spec=window_spec))
-        df = df.select("*",F.explode(F.col(end_time_map_reason4time_col)).alias('end_reason','end_time'))
-        df = df.drop(end_time_map_reason4time_col)
-        return df
+
+        return df.distinct()
 
 
     def prepare_matches(
@@ -211,6 +236,5 @@ class FindMatchRange:
                                                                             self._status_col,
                                                                             self._time_col],
                                                                     match_cols=self._other_matches + [self._hero_col])
-        df = self.mark_end_time_with_ending_reason(df, anchor_col=self._hero_col, match_col=self._matched_col)
-        df = self.mark_end_time_with_ending_reason(df, match_col=self._hero_col, anchor_col=self._hero_col)
+        df = self._mark_end_time_with_ending_reason(df, match_columns=[self._hero_col, self._matched_col])
         return df.distinct()

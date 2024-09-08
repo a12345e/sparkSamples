@@ -1,7 +1,7 @@
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row, ArrayType, BooleanType, MapType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row, BooleanType
 import pyspark.sql.functions as F
 from spark.find_match.find_match_ranges import FindMatchRange
-from tests.infra.dataframes_helpers import complete_row_to_schema, compare_dataframes, dataframe_create, RowsBuilder
+from tests.infra.dataframes_helpers import compare_dataframes, RowsBuilder, print_dataframe_schema_and_rows
 from tests.infra.default_spark_builder import DefaultSparkFactory
 
 spark = DefaultSparkFactory().spark
@@ -22,6 +22,7 @@ def test_initial_filter_non_nulls_a_col_time_col():
         StructField("other", StringType(), True),
     ])
     rows = [
+            Row(a="a", t=1),
             Row(a="a", t=None),
             Row(a=None, t=2),
             Row(a=None, t=None)]
@@ -43,16 +44,16 @@ def test_enumerate_status_colum():
     df_a = RowsBuilder(schema, spark).add_rows(rows).df
     df_a = find_match_ranges._enumerate_status_column(df_a)
     schema = StructType([
-        StructField("status", IntegerType(), True),
+        StructField("status", StringType(), True),
         StructField("o1", StringType(), True),
     ])
-    df_e = RowsBuilder(schema, spark).add_rows([Row(status=i) for i in range(0,4)]).df
+    df_e = RowsBuilder(schema, spark).add_rows([Row(status=reason.value) for reason in find_match_ranges.Status ]).df
     df_a.show()
     compare_dataframes(df_a, df_e)
 
 def test_keep_only_start_end_status():
     schema = StructType([
-        StructField("status", IntegerType(), True),
+        StructField("status",StringType(), True),
     ])
     rows = [Row(status=find_match_ranges.Status.INVALID.value),
             Row(status=find_match_ranges.Status.START.value),
@@ -65,7 +66,7 @@ def test_keep_only_start_end_status():
 
 def test_avoid_b_col_null_on_start_status():
     schema = StructType([
-        StructField("status", IntegerType(), True),
+        StructField("status", StringType(), True),
         StructField("b", StringType(), True),
         StructField("o2", StringType(), True),
     ])
@@ -82,10 +83,10 @@ def test_avoid_b_col_null_on_start_status():
 
 
 
-def test__reduce_matched_cols_into_one_value_or_invalidate():
+def test_reduce_matched_cols_into_one_value_or_invalidate():
     schema = StructType([StructField("a", IntegerType(), True),
                          StructField("b", IntegerType(), True),
-                         StructField("status", IntegerType(), True),
+                         StructField("status", StringType(), True),
                          StructField("t", IntegerType(), True),
                          StructField("o1", IntegerType(), True),
                          StructField("o2", IntegerType(), True),
@@ -132,17 +133,17 @@ def test__reduce_matched_cols_into_one_value_or_invalidate():
         key_cols=[find_match_ranges._matched_col, find_match_ranges._status_col, find_match_ranges._time_col],
         match_cols=[find_match_ranges._hero_col] + find_match_ranges._other_matches)
     rows = [
-    Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-    Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True),
-    Row(a=2, b=2, status=1, t=2, o1=1, o2=1, v=False),
-    Row(a=2, b=2, status=1, t=2, o1=2, o2=1, v=False),
-    Row(a=2, b=2, status=1, t=2, o1=1, o2=2, v=False),
-    Row(a=3, b=3, status=1, t=2, o1=1, o2=1, v=False),
-    Row(a=3, b=4, status=1, t=2, o1=1, o2=1, v=False),
-    Row(a=5, b=5, status=1, t=2, o1=1, o2=1, v=False),
-    Row(a=6, b=5, status=1, t=2, o1=1, o2=1, v=False),
-    Row(a=1, b=1, status=3, t=2, o1=1, o2=None, v=True),
-    Row(a=1, b=1, status=3, t=2, o1=None, o2=1, v=True)
+    Row(a=0, b=0, status=find_match_ranges.Status.START.value, t=1, o1=1, o2=1, v=True),
+    Row(a=1, b=1, status=find_match_ranges.Status.START.value, t=1, o1=1, o2=1, v=True),
+    Row(a=2, b=2, status=find_match_ranges.Status.START.value, t=2, o1=1, o2=1, v=False),
+    Row(a=2, b=2, status=find_match_ranges.Status.START.value, t=2, o1=2, o2=1, v=False),
+    Row(a=2, b=2, status=find_match_ranges.Status.START.value, t=2, o1=1, o2=2, v=False),
+    Row(a=3, b=3, status=find_match_ranges.Status.START.value, t=2, o1=1, o2=1, v=False),
+    Row(a=3, b=4, status=find_match_ranges.Status.START.value, t=2, o1=1, o2=1, v=False),
+    Row(a=5, b=5, status=find_match_ranges.Status.START.value, t=2, o1=1, o2=1, v=False),
+    Row(a=6, b=5, status=find_match_ranges.Status.START.value, t=2, o1=1, o2=1, v=False),
+    Row(a=1, b=1, status=find_match_ranges.Status.END.value, t=2, o1=1, o2=None, v=True),
+    Row(a=1, b=1, status=find_match_ranges.Status.END.value, t=2, o1=None, o2=1, v=True)
         ]
     df_e = RowsBuilder(schema,spark).add_rows(rows).df
     compare_dataframes(df_e,df_a)
@@ -151,7 +152,7 @@ def test__reduce_matched_cols_into_one_value_or_invalidate():
 def test_mark_end_time_with_ending_reason():
     schema = StructType([StructField("a", IntegerType(), True),
                          StructField("b", IntegerType(), True),
-                         StructField("status", IntegerType(), True),
+                         StructField("status", StringType(), True),
                          StructField("t", IntegerType(), True),
                          StructField("o1", IntegerType(), True),
                          StructField("o2", IntegerType(), True),
@@ -178,31 +179,45 @@ def test_mark_end_time_with_ending_reason():
             Row(a=0, b=0, status=FindMatchRange.Status.START.value, t=9, o1=1, o2=1, v=True),
             Row(a=0, b=0, status=FindMatchRange.Status.START.value, t=10, o1=1, o2=1, v=True),
 
+            # not same anchor, same match, start-end statuses, time = time+1 => map=(1 -> t=2)
+            Row(a=1, b=1, status=FindMatchRange.Status.START.value, t=20, o1=1, o2=1, v=True),
+            Row(a=2, b=1, status=FindMatchRange.Status.END.value, t=21, o1=1, o2=1, v=True),
+
     ]
     df_a = RowsBuilder(schema, spark).add_rows(rows).df
-    df_a = find_match_ranges.mark_end_time_with_ending_reason(
-            df=df_a,
-            anchor_col= find_match_ranges._hero_col,
-            match_col= find_match_ranges._matched_col)
-    print(df_a.collect())
-    rows = [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason=1, end_time=2),
-            Row(a=0, b=0, status=1, t=3, o1=1, o2=1, v=True, start_time=3, end_reason=2, end_time=4),
-            Row(a=0, b=0, status=1, t=5, o1=1, o2=1, v=True, start_time=5, end_reason=3, end_time=6),
-            Row(a=0, b=1, status=1, t=6, o1=1, o2=1, v=True, start_time=6, end_reason=3, end_time=7),
-            Row(a=0, b=0, status=1, t=7, o1=1, o2=1, v=True, start_time=7, end_reason=4, end_time=8),
-            Row(a=0, b=0, status=1, t=9, o1=1, o2=1, v=True, start_time=9, end_reason=5, end_time=10)]
-    schema = StructType([
-        StructField('a', IntegerType(), True),
-        StructField('b', IntegerType(), True),
-        StructField('status', IntegerType(), True),
-        StructField('t', IntegerType(), True),
-        StructField('o1', IntegerType(), True),
-        StructField('o2', IntegerType(), True),
-        StructField('v', BooleanType(), True),
-        StructField('start_time', IntegerType(), True),
-        StructField('end_reason', IntegerType(), True),
-        StructField('end_time', IntegerType(),  True)
-    ])
+    df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=[find_match_ranges._hero_col,find_match_ranges._matched_col])
+
+    schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),
+                         StructField('status', StringType(), True), StructField('t', IntegerType(), True),
+                         StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True),
+                         StructField('v', BooleanType(), True), StructField('start_time', IntegerType(), True),
+                         StructField('end_reason', StringType(), True), StructField('end_time', IntegerType(), True)])
+    rows = [
+        Row(a=0, b=0, status='start', t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',
+            end_time=2),
+        Row(a=0, b=0, status='start', t=3, o1=1, o2=1, v=True, start_time=3, end_reason='next_match_end_null',
+            end_time=4),
+        Row(a=0, b=0, status='start', t=3, o1=1, o2=1, v=True, start_time=3, end_reason='next_match_start', end_time=5),
+        Row(a=0, b=0, status='start', t=5, o1=1, o2=1, v=True, start_time=5, end_reason='next_match_start_different',
+            end_time=6),
+        Row(a=0, b=0, status='start', t=5, o1=1, o2=1, v=True, start_time=5, end_reason='next_match_start', end_time=7),
+        Row(a=0, b=0, status='start', t=7, o1=1, o2=1, v=True, start_time=7, end_reason='next_match_end_different',
+            end_time=8),
+        Row(a=0, b=0, status='start', t=7, o1=1, o2=1, v=True, start_time=7, end_reason='next_match_start', end_time=9),
+        Row(a=0, b=0, status='start', t=9, o1=1, o2=1, v=True, start_time=9, end_reason='next_match_start',
+            end_time=10),
+        Row(a=0, b=1, status='start', t=6, o1=1, o2=1, v=True, start_time=6, end_reason='next_match_start_different',
+            end_time=7),
+        Row(a=0, b=1, status='start', t=6, o1=1, o2=1, v=True, start_time=6, end_reason='next_match_end_same',
+            end_time=8),
+        Row(a=1, b=1, status='start', t=20, o1=1, o2=1, v=True, start_time=20, end_reason='next_match_end_different',
+            end_time=21),
+        Row(a=0, b=None, status='end', t=4, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+        Row(a=0, b=0, status='end', t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+        Row(a=0, b=0, status='start', t=10, o1=1, o2=1, v=True, start_time=10, end_reason=None, end_time=None),
+        Row(a=0, b=1, status='end', t=8, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+        Row(a=2, b=1, status='end', t=21, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None),
+    ]
     df_e = RowsBuilder(schema,spark).add_rows(rows).df
     compare_dataframes(df_e, df_a)
 

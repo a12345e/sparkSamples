@@ -161,3 +161,15 @@ def compare_schemas(expected_df: DataFrame, actual_df: DataFrame):
             if data_types_df_expected[field] != data_types_df_actual[field]:
                 different_data_types += (f"\nField '{field}' has different data types: {data_types_df_expected[field]} (expected) vs {data_types_df_actual[field]} (actual)")
         raise  Exception(different_data_types)
+
+def print_dataframe_schema_and_rows(df: DataFrame):
+        print()
+        print(f'schema = {df.schema}')
+        if df.count() == 0:
+            print('rows =  []')
+        else:
+            print('rows =  [')
+            for row in df.collect():
+                print(row,',')
+            print('        ]')
+
