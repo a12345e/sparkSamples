@@ -1,3 +1,4 @@
+import pytest
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row, BooleanType
 import pyspark.sql.functions as F
 from spark.find_match.find_match_ranges import FindMatchRange
@@ -31,23 +32,24 @@ def test_initial_filter_non_nulls_a_col_time_col():
     df_e = RowsBuilder(schema,spark).add(Row(a="a", t=1)).df
     compare_dataframes(df_e,df_a)
 
+test_test_enumerate_status_colum_data = [
+    ([Row(status="invalid"),Row(status="start"),Row(status="update"),Row(status="end")],
+    [Row(status=reason.value) for reason in find_match_ranges.Status ])
 
-def test_enumerate_status_colum():
-    schema = StructType([
+]
+@pytest.mark.parametrize("input_rows, expected_rows", test_test_enumerate_status_colum_data)
+def test_enumerate_status_colum(input_rows, expected_rows):
+    input_schema = StructType([
         StructField("status", StringType(), True),
         StructField("o1", StringType(), True),
     ])
-    rows = [Row(status="invalid"),
-            Row(status="start"),
-            Row(status="update"),
-            Row(status="end")]
-    df_a = RowsBuilder(schema, spark).add_rows(rows).df
+    expected_schema = StructType([
+        StructField("status", StringType(), True),
+        StructField("o1", StringType(), True),
+    ])
+    df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._enumerate_status_column(df_a)
-    schema = StructType([
-        StructField("status", StringType(), True),
-        StructField("o1", StringType(), True),
-    ])
-    df_e = RowsBuilder(schema, spark).add_rows([Row(status=reason.value) for reason in find_match_ranges.Status ]).df
+    df_e = RowsBuilder(expected_schema, spark).add_rows(expected_rows).df
     df_a.show()
     compare_dataframes(df_a, df_e)
 
@@ -280,3 +282,21 @@ def test_get_close_transactions():
     ]
     df_e = RowsBuilder(schema, spark).add_rows(rows).df
     compare_dataframes(df_a, df_e)
+
+
+def test_get_connect_succeeding_transactions():
+    schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),
+                         StructField('status', IntegerType(), True), StructField('t', IntegerType(), True),
+                         StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True),
+                         StructField('v', BooleanType(), True), StructField('start_time', IntegerType(), True),
+                         StructField('final_end_time', IntegerType(), True),
+                         StructField('final_end_reason', StringType(), True)])
+    rows = [
+    Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=21,
+        final_end_reason='next_match_end_different'),
+    Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True, start_time=21, final_end_time=25,
+        final_end_reason='next_match_end_different')
+        ]
+    df  = RowsBuilder(schema, spark).add_rows(rows).df
+    df_a = find_match_ranges.get_connect_succeeding_transactions(df)
+    print_dataframe_schema_and_rows(df_a)

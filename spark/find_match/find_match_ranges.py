@@ -10,10 +10,13 @@ from enum import Enum
 
 class FindMatchRange:
     class Status(Enum):
-        INVALID = 'invalid'
-        START = 'start'
-        UPDATE = 'update'
-        END = 'end'
+        """
+        We use number because we are sorting by status and this ascending order we nee
+        """
+        INVALID = 0
+        START = 1
+        UPDATE = 2
+        END = 3
 
 
     class EndingTransactionReason(Enum):
@@ -267,5 +270,19 @@ class FindMatchRange:
         df = df.withColumn('final_end_time',F.first(self.END_TIME_COL).over(window_spec))
         df = df.withColumn('final_end_reason',F.first(self.END_REASON_COL).over(window_spec)).drop('end_time','end_reason')
         df = df.where(F.col('final_end_time') == F.col('end_time')).orderBy('start_time')
-        return df.distinct()
+        return df
 
+
+    def get_connect_succeeding_transactions(self, df):
+        df = df.where(F.col('final_end_time').isNotNull())
+        window_spec:WindowSpec = Window.partitionBy(self._hero_col,self._matched_col).orderBy(self.START_TIME_COL)
+        has_upper_neighbor = F.lead('start_time').over(window_spec) == F.col('final_end_time')
+        has_lower_neighbor = F.lag('final_end_time').over(window_spec) == F.col('start_time')
+        df = df.withColumn('neighbors_status',
+                           F.when(has_upper_neighbor & has_lower_neighbor, 3).
+                           otherwise(F.when(has_upper_neighbor,1).otherwise(F.when(has_lower_neighbor,2).otherwise(0))))
+        df = df.where(F.col('neighbors_status').isin(*[2,1,0]))
+        df.show()
+        df = df.withColumn('final_end_time',F.when(F.col('neighbors_status') == 1,F.lead('final_end_time').over(window_spec)).otherwise(F.col('final_end_time')))
+        df = df.where(F.col('neighbors_status').isin(*[1,0]))
+        return df
