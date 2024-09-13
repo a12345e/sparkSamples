@@ -136,6 +136,118 @@ def test_prepare_valid_transaction_start_points(spark, anchor, input_rows, expec
     compare_dataframes(df_e,df_a)
 
 
+""""
+        NEXT_END_FOR_SAME_MATCH = 'next_match_end_same' # the normal start end events for the same transaction
+        NEXT_END_NULL = 'next_match_end_null'
+        NEXT_START_DIFFERENT_MATCH = 'next_match_start_different'
+        NEXT_END_DIFFERENT_MATCH = 'next_match_end_different'
+        NEXT_START_FOR_SAME_MATCH = 'next_match_start'
+"""
+@pytest.mark.parametrize("input_rows, expected_rows",[
+#     pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#                 Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True)],
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',end_time=2),
+#          Row(a=0, b=0,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='simple  start end')
+#     , pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',end_time=1),
+#          Row(a=0, b=0,status=3,t=1, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='simple  start end same time')
+#
+#     , pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=0, b=0, status=3, t=0, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason=None,end_time=None),
+#          Row(a=0, b=0,status=3,t=0, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='end time before start time')
+
+#      pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=0, b=None, status=3, t=2, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_null',end_time=2),
+#          Row(a=0, b=None,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next match null'),
+#
+#      pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start_different',end_time=2),
+#          Row(a=0, b=1,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing'),
+
+#      pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=1, b=0, status=1, t=2, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start_different',end_time=2),
+#          Row(a=1, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing')
+
+#      pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=2),
+#          Row(a=0, b=1,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing'),
+#
+#      pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=1, b=0, status=3, t=2, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=2),
+#          Row(a=1, b=0,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing')
+
+#      pytest.param(
+# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+#         Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True)],
+#
+#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start',end_time=2),
+#          Row(a=0, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start now with anchor changing')
+
+     pytest.param(
+[
+        Row(a=0, b=None, status=3, t=12, o1=1, o2=1, v=True),
+        Row(a=1, b=0, status=3, t=13, o1=1, o2=1, v=True),
+        Row(a=0, b=1, status=3, t=3, o1=1, o2=1, v=True),
+        # Row(a=0, b=0, status=3, t=10, o1=1, o2=1, v=True),
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=3),
+         Row(a=0, b=0,status=1,t=3, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='choose minimum end among few')
+
+
+])
+def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
+    output_schema = StructType([StructField("a", IntegerType(), True),
+                         StructField("b", IntegerType(), True),
+                         StructField("status", IntegerType(), True),
+                         StructField("t", IntegerType(), True),
+                         StructField("o1", IntegerType(), True),
+                         StructField("o2", IntegerType(), True),
+                         StructField("v", BooleanType(), True),
+                         StructField("start_time", IntegerType(), True),
+                         StructField("end_reason", StringType(), True),
+                         StructField("end_time", IntegerType(), True),
+                         ])
+    input_schema = StructType([StructField("a", IntegerType(), True),
+                         StructField("b", IntegerType(), True),
+                         StructField("status", IntegerType(), True),
+                         StructField("t", IntegerType(), True),
+                         StructField("o1", IntegerType(), True),
+                         StructField("o2", IntegerType(), True),
+                         StructField("v", BooleanType(), True),
+                         ])
+    df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
+    df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=["a","b"])
+    df_a.show(truncate=False)
+    df_e = RowsBuilder(output_schema,spark).add_rows(expected_rows).df
+    df_e.show(truncate=False)
+    compare_dataframes(df_e,df_a)
+
+
+
+
 
 def test_get_close_transactions():
     schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),

@@ -185,21 +185,6 @@ class TransactionAnalysis:
     def _create_transaction_window_partitioned_by_matched(self) -> WindowSpec:
         return Window.partitionBy(self._matched_col).orderBy(self._time_col, self._anchor_col, self._status_col)
 
-    def _build_transaction_end_when(self,cond: Column,
-                                   output_col: str,
-                                   map_key: int,
-                                   window_spec: WindowSpec):
-        """
-            This is for inserting a Map element into output_cl
-        :param cond: The condition when
-        :param output_col:  where to ad the Map element
-        :param map_key: The key for the map (literal)
-        :param window_spec: The Window spec we use
-        :return:
-        """
-        return F.when(cond, F.concat(F.col(output_col),
-                            F.array(F.struct(F.lit(map_key).alias(self.END_REASON_COL),F.lead(self._time_col, 1).over(window_spec).alias(self.END_TIME_COL))))
-               ).otherwise(F.col(output_col))
     def _mark_end_time_with_ending_reason(
                                 self,
                                 df: DataFrame,
@@ -211,13 +196,34 @@ class TransactionAnalysis:
         for col in match_columns:
             assert col in df.columns
         df = df.withColumn(self.END_TIME_MAP_ARRAY_COL, F.array())
+        curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
+        df = df.withColumn(self.START_TIME_COL, F.when(curren_status_is_start, F.col(self._time_col)))
+
         df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[0],match_col=match_columns[1])
         df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[1],match_col=match_columns[0])
+
         df = df.select("*",F.explode_outer(F.col( self.END_TIME_MAP_ARRAY_COL)).alias(self.END_TIME_MAP_COL))
         df = df.withColumn(self.END_REASON_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_REASON_COL))
         df = df.withColumn(self.END_TIME_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_TIME_COL))
         return df.drop( self.END_TIME_MAP_COL, self.END_TIME_MAP_ARRAY_COL ).distinct()
 
+    def _build_transaction_end_when(self, cond: Column,
+                                    output_col: str,
+                                    map_key: int,
+                                    window_spec: WindowSpec):
+        """
+            This is for inserting a Map element into output_cl
+        :param cond: The condition when
+        :param output_col:  where to ad the Map element
+        :param map_key: The key for the map (literal)
+        :param window_spec: The Window spec we use
+        :return:
+        """
+        return F.when(cond, F.concat(F.col(output_col),
+                                     F.array(F.struct(F.lit(map_key).alias(self.END_REASON_COL),
+                                                      F.lead(self._time_col, 1).over(window_spec).alias(
+                                                          self.END_TIME_COL))))
+                      ).otherwise(F.col(output_col))
 
     def _mark_end_time_with_ending_reason_one_direction(
                                 self,
@@ -235,6 +241,7 @@ class TransactionAnalysis:
         window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(self._time_col, match_col, self._status_col)
 
         same_anchor =  F.col(anchor_col) == F.lead(anchor_col, 1).over(window_spec)
+        time_is_later = F.col(self._time_col) < F.lead(self._time_col).over(window_spec)
         next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START.value
         next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END.value
         next_match_is_null = F.lead(match_col, 1).over(window_spec).isNull()
@@ -246,25 +253,23 @@ class TransactionAnalysis:
         start_after_start_cond = curren_status_is_valid_start & next_status_is_start
         end_after_start_cond = curren_status_is_valid_start & next_status_is_end
 
-        df = df.withColumn(self.START_TIME_COL, F.when(curren_status_is_start, F.col(self._time_col)))
-
-        ending_reason_ton_con_map = {
+        ending_reason_to_condition_map = {
             self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH : same_anchor & same_match_col & end_after_start_cond,
             self.EndingTransactionReason.NEXT_END_NULL: same_anchor & next_match_is_null & end_after_start_cond,
             self.EndingTransactionReason.NEXT_START_DIFFERENT_MATCH: same_anchor & match_broken & start_after_start_cond,
             self.EndingTransactionReason.NEXT_END_DIFFERENT_MATCH: same_anchor & match_broken & end_after_start_cond,
             self.EndingTransactionReason.NEXT_START_FOR_SAME_MATCH: same_anchor & start_after_start_cond & same_match_col,
         }
+
         for reason in self._ending_conditions:
-            if reason not in ending_reason_ton_con_map.keys():
+            if reason not in ending_reason_to_condition_map.keys():
                 raise Exception(f"reason {reason} not in our support")
-            if reason in ending_reason_ton_con_map.keys():
-                df = df.withColumn( self.END_TIME_MAP_ARRAY_COL,
-                           self._build_transaction_end_when(
-                               cond=ending_reason_ton_con_map[reason],
-                               output_col= self.END_TIME_MAP_ARRAY_COL,
-                               map_key=reason.value,
-                               window_spec=window_spec))
+            df = df.withColumn( self.END_TIME_MAP_ARRAY_COL,
+                self._build_transaction_end_when(
+                cond=ending_reason_to_condition_map[reason],
+                output_col= self.END_TIME_MAP_ARRAY_COL,
+                map_key=reason.value,
+                window_spec=window_spec))
 
         return df.distinct()
 
@@ -300,5 +305,6 @@ class TransactionAnalysis:
         df_normalized = self._initialize_dataframe(df)
         df = self._prepare_valid_transaction_start_points(df_normalized)
         df = self._mark_end_time_with_ending_reason(df, match_columns=[self._anchor_col, self._matched_col])
+        df = self._get_close_transactions(df)
         df = self._connect_succeeding_transactions(df)
         return  df_normalized,df.distinct()
