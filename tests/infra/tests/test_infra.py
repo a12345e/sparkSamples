@@ -1,37 +1,16 @@
+import datetime
+
 import pytest
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, Row, DoubleType, TimestampType
-from tests.infra.dataframes_helpers import row_validate_schema, dataframe_create, RowsBuilder
-
-from tests.infra.default_spark_builder import DefaultSparkFactory
-
-spark = DefaultSparkFactory().spark
-
-def test_spark_create_singleton():
-    s1 = DefaultSparkFactory()
-    s2 = DefaultSparkFactory()
-
-    assert s1 is s2
-    assert id(s1) == id(s2)
-    assert s1.spark == s2.spark
+from tests.infra.dataframes_helpers import RowsBuilder, compare_dataframes
+from tests.infra.default_spark_builder import spark
 
 
-def test_dataframe_creat():
-    schema = StructType([
-        StructField("height", DoubleType(), True),
-        StructField("birthday", TimestampType(), True),
-        StructField("id", IntegerType(), True),
-        StructField("count", IntegerType(), True),
-        StructField("birthday", TimestampType(), True),
-        StructField("name", StringType(), True),
-        StructField("age", IntegerType(), True)
-    ])
-    rows = [Row( name="Alice", age=25), Row(name="Bob", age=30), Row(name="Cathy",age=28)]
-    row_validate_schema(rows,schema)
-    df = dataframe_create(rows, schema, complete_with_nulls=False)
-    df.show(truncate=False)
-    df.printSchema()
-
-def test_rows_builder():
+@pytest.mark.parametrize("anchor, row, expected_row",[
+        pytest.param(Row(birthday=datetime.datetime(2000,1,1), id=1,name='x'),Row(height=12.0, id=2),
+            Row(birthday=datetime.datetime(2000,1,1), id=2,name='x', height=12.0), id='test set_anchor and add row')
+])
+def test_rows_builder_add_row_and_set_anchor(spark, anchor, row, expected_row):
     schema = StructType([
         StructField("height", DoubleType(), True),
         StructField("id", IntegerType(), True),
@@ -40,8 +19,26 @@ def test_rows_builder():
         StructField("birthday", TimestampType(), True),
         StructField("age", IntegerType(), True)
     ])
-    rb = RowsBuilder(schema, session=spark, anchor= Row( name="Alice", age=25), counter=1)
-    rb.add(Row(height=10.0, id=1)).add(Row(id=2, height=13.9))
-    df = rb.df
-    df.printSchema()
-    df.show()
+    df_a = RowsBuilder(schema, session=spark).set_anchor(anchor).add(row).df
+    df_e = RowsBuilder(schema, session=spark).add(expected_row).df
+    compare_dataframes(df_a,df_e)
+
+@pytest.mark.parametrize("anchor, rows, expected_rows",[
+        pytest.param(
+            Row(birthday=datetime.datetime(2000,1,1), id=1,name='x'),
+                   [Row(height=12.0, id=2),Row(height=13.0, id=3)],
+            [Row(birthday=datetime.datetime(2000,1,1), id=2,name='x', height=12.0),
+             Row(birthday=datetime.datetime(2000,1,1), id=3,name='x', height=13.0)], id='test init with anchor and add rows')
+])
+def test_rows_builder_add_rows_and_anchor_in_construct(spark, anchor, rows, expected_rows):
+    schema = StructType([
+        StructField("height", DoubleType(), True),
+        StructField("id", IntegerType(), True),
+        StructField("count", IntegerType(), True),
+        StructField("name", StringType(), True),
+        StructField("birthday", TimestampType(), True),
+        StructField("age", IntegerType(), True)
+    ])
+    df_a = RowsBuilder(schema, session=spark, anchor=anchor).add_rows(rows).df
+    df_e = RowsBuilder(schema, session=spark).add_rows(expected_rows).df
+    compare_dataframes(df_a,df_e)

@@ -2,9 +2,12 @@ from typing import List
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, Row, FloatType, LongType, DoubleType, TimestampType
 from datetime import datetime, timedelta
-from tests.infra.default_spark_builder import DefaultSparkFactory
 
-spark = DefaultSparkFactory().spark
+
+
+def create_rows_builder(spark, schema:StructType, anchor: DataFrame=None, counter: int = None):
+    return RowsBuilder(schema, spark, anchor, counter)
+
 class RowsBuilder:
     def __init__(self, schema: StructType,
                  session: SparkSession,
@@ -30,12 +33,12 @@ class RowsBuilder:
             self.add(row)
         return self
     def add(self, row: Row):
-        self._validate(row)
         if self._anchor:
-            row_as_dict = row.asDict().copy()
+            row_as_dict = row.asDict().copy() if row != Row() else {}
             base_as_dict = self._anchor.asDict()
             for key in set(base_as_dict.keys())-set(row_as_dict.keys()):
                 row_as_dict[key] = base_as_dict[key]
+            row = Row(**row_as_dict)
         new_row = complete_row_to_schema(row,self._schema, self._counter)
         if self._counter:
             self._counter = self._counter + 1
@@ -52,33 +55,24 @@ class RowsBuilder:
     def df(self):
         return self._session.createDataFrame(self._rows, self._schema)
 
-def dataframe_create(rows: List[Row],
-              schema: StructType,
-              complete_with_nulls=True,
-              specific_spark: SparkSession=None) -> DataFrame:
-    session = specific_spark
-    if not session:
-        session = spark
-        session = spark
-    return session.createDataFrame(
-        complete_rows_to_schema(rows, schema, complete_with_nulls),schema)
 
 def row_validate_schema(row: Row, schema: StructType):
-        row_as_dict = row.asDict()
-        for row_field in row_as_dict.keys():
-            if row_field not in schema.fieldNames():
-                msg = f'{row_field} in row but not in schema {schema.fieldNames()}'
-                raise ValueError(msg)
-            field: StructField = schema[row_field]
-            if row_as_dict[row_field]:
-                if isinstance(field.dataType, StringType):
-                    assert isinstance(row_as_dict[row_field], str)
-                elif isinstance(field.dataType, IntegerType) or isinstance(field.dataType, LongType):
-                    assert isinstance(row_as_dict[row_field],int)
-                elif isinstance(field.dataType, FloatType) or isinstance(field.dataType, DoubleType):
-                    assert isinstance(row_as_dict[row_field],float)
-                elif isinstance(field.dataType, TimestampType):
-                    assert isinstance(row_as_dict[row_field], datetime)
+        if row != Row():
+            row_as_dict = row.asDict()
+            for row_field in row_as_dict.keys():
+                if row_field not in schema.fieldNames():
+                    msg = f'{row_field} in row but not in schema {schema.fieldNames()}'
+                    raise ValueError(msg)
+                field: StructField = schema[row_field]
+                if row_as_dict[row_field]:
+                    if isinstance(field.dataType, StringType):
+                        assert isinstance(row_as_dict[row_field], str)
+                    elif isinstance(field.dataType, IntegerType) or isinstance(field.dataType, LongType):
+                        assert isinstance(row_as_dict[row_field],int)
+                    elif isinstance(field.dataType, FloatType) or isinstance(field.dataType, DoubleType):
+                        assert isinstance(row_as_dict[row_field],float)
+                    elif isinstance(field.dataType, TimestampType):
+                        assert isinstance(row_as_dict[row_field], datetime)
 
 def rows_validate_schema(rows: List[Row], schema: StructType):
     for row in rows:
@@ -89,8 +83,11 @@ def complete_row_to_schema(row: Row,
                            counter: int =None
                            ) -> Row:
     row_validate_schema(row, schema)
-    completed_row = row.asDict()
-    missing_fields = [field for field in schema.fields if field.name not in row.__fields__]
+    if row == Row():
+        completed_row = {}
+    else:
+        completed_row = row.asDict()
+    missing_fields = [field for field in schema.fields if field.name not in completed_row.keys()]
     for field in missing_fields:
         if not counter:
             completed_row[field.name] = None

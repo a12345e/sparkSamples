@@ -8,19 +8,19 @@ import uuid
 from pyspark.sql.dataframe import DataFrame
 from enum import Enum
 
-class FindMatchRange:
+class TransactionAnalysis:
     class Status(Enum):
         """
-        We use number because we are sorting by status and this ascending order we nee
+        We use number because we are sorting by status and this is the ascending order we need
+        so that end comes after start
         """
-        INVALID = 0
         START = 1
         UPDATE = 2
         END = 3
 
 
     class EndingTransactionReason(Enum):
-        NEXT_END_FOR_SAME_MATCH = 'next_match_end_same' # the normal start end events for the same match
+        NEXT_END_FOR_SAME_MATCH = 'next_match_end_same' # the normal start end events for the same transaction
         NEXT_END_NULL = 'next_match_end_null'
         NEXT_START_DIFFERENT_MATCH = 'next_match_start_different'
         NEXT_END_DIFFERENT_MATCH = 'next_match_end_different'
@@ -33,7 +33,7 @@ class FindMatchRange:
     END_TIME_MAP_ARRAY_COL = 'end_time_map_array'
 
     def __init__(self,
-                 hero_col: str,
+                 anchor_col: str,
                  matched_col: str,
                  time_col: str,
                  status_col: str,
@@ -42,26 +42,28 @@ class FindMatchRange:
                  start_valid_column: str,
                  ending_conditions=None):
 
-        self._hero_col = hero_col
+        self._anchor_col = anchor_col
         self._matched_col = matched_col
         self._time_col = time_col
         self._status_col = status_col
         self._status_namings = status_namings
         self._other_matches = other_matches
         self._start_validity_column = start_valid_column
-        given_cols = [self._start_validity_column, self._hero_col, self._matched_col, self._time_col, self._status_col] + other_matches
+        given_cols = [self._start_validity_column, self._anchor_col, self._matched_col, self._time_col, self._status_col] + other_matches
         assert len(set(given_cols)) == 5+len(other_matches), 'Some columns defied twice!!'
-        self._status_map = F.create_map([F.lit(k) for pair in status_namings.items() for k in pair])
+
         if ending_conditions is None:
             self._ending_conditions = [reason for reason in self.EndingTransactionReason]
         else:
             self._ending_conditions = ending_conditions
 
     @property
-    def start_condition(self) -> Column:
-        return F.col(self._status_col) == FindMatchRange.Status.START.value
+    def _start_condition(self) -> Column:
+        return ((F.col(self._status_col) == TransactionAnalysis.Status.START.value) &
+                (F.col(self._start_validity_column) == F.lit(True)))
+
     @property
-    def validity_column(self):
+    def _validity_column(self):
         return self._start_validity_column
     def _initialize_dataframe(self,df: DataFrame) -> DataFrame:
         """
@@ -69,28 +71,28 @@ class FindMatchRange:
         :param df:
         :return:
         """
-        mandatory_columns = set([self._hero_col,
+        mandatory_columns = set([self._anchor_col,
                                                 self._matched_col,self._status_col,
                                                 self._time_col]+self._other_matches)
         assert len(set(df.columns).intersection(mandatory_columns))  == len(mandatory_columns)
-        df = self._initial_filter_non_nulls_hero_and_time_col(df)
-        df = df.withColumn(self._start_validity_column, F.lit(True))
         df = self._enumerate_status_column(df)
+        df = self._initial_filter_non_nulls_anchor_and_time_col(df)
         df = self._avoid_match_col_null_on_start_status(df)
         df = self._keep_only_start_end_status(df)
         return df
 
     @staticmethod
-    def generate_name_plus_uuid(name: str):
+    def _generate_name_plus_uuid(name: str):
         return f"{name}_{uuid.uuid4().hex}"
 
-    def _initial_filter_non_nulls_hero_and_time_col(self, df: DataFrame):
-        return df.where( (F.col(self._hero_col).isNotNull()) & (F.col(self._time_col).isNotNull()))
+    def _initial_filter_non_nulls_anchor_and_time_col(self, df: DataFrame):
+        return df.where((F.col(self._anchor_col).isNotNull()) & (F.col(self._time_col).isNotNull()))
 
     def _enumerate_status_column(self, df:DataFrame) -> DataFrame:
+        status_map = F.create_map([F.lit(k) for pair in self._status_namings.items() for k in pair])
         return df.withColumn(self._status_col,
-                           F.when(F.col(self._status_col).isin(list(self._status_namings.keys())),
-                                  self._status_map.getItem(F.col(self._status_col))).otherwise(FindMatchRange.Status.INVALID.value))
+                             F.when(F.col(self._status_col).isin(list(self._status_namings.keys())),
+                                  status_map.getItem(F.col(self._status_col))).otherwise(None))
 
     def _keep_only_start_end_status(self, df: DataFrame) -> DataFrame:
         return df.where(F.col(self._status_col).isin([self.Status.START.value, self.Status.END.value]))
@@ -100,75 +102,88 @@ class FindMatchRange:
                   (F.col(self._matched_col).isNotNull()))
 
 
-    def prepare_valid_transaction_start_events(self, df):
+    def _prepare_valid_transaction_start_points(self, df):
         """
-        Well we look into start events with key of anchor,match,status,other_matches[]
-        We make sure that if aggregating the match+other_matches columns we get at most one value
-        We do that through two ways of choosing the keys replacing the match col with the anchor col
-        This leads us to distinction keys that form a valid start point
-        If it is a valid key then we take the aggregated value of the other_matches columns as their value
-        so this will become one aggregate row marked as valid start in a new column.
-        Other rows are marked invalid  start rows. Yet they are not removed
+        This function is calling twice the reduce_and_validate_transaction_start_points
+        See how it flips roles between the anchor_col and match_col
+        At the end we have one row per each valid starting point marked as valid with at most one value for
+        the match columns, and all the other start point are just left with and invalid mark as it.
         :param df:
-        :return:
+        :return:df
         """
-        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
-                                                                    base_condition=self.start_condition,
-                                                                    validity_column=self._start_validity_column,
-                                                                    key_cols=[self._hero_col,
-                                                                            self._status_col,
+        df = df.withColumn(self._start_validity_column, F.lit(True))
+        df = self.reduce_and_validate_transaction_start_points(df,
+                                                               key_cols=[self._anchor_col,
                                                                             self._time_col],
-                                                                    match_cols=self._other_matches+[self._matched_col])
-        df = self._reduce_matched_cols_into_one_value_or_invalidate(df,
-                                                                    base_condition=self.start_condition,
-                                                                    validity_column=self._start_validity_column,
-                                                                    key_cols=[self._matched_col,
-                                                                            self._status_col,
+                                                               match_cols=self._other_matches+[self._matched_col])
+        df = self.reduce_and_validate_transaction_start_points(df,
+                                                               key_cols=[self._matched_col,
                                                                             self._time_col],
-                                                                    match_cols=self._other_matches + [self._hero_col])
+                                                               match_cols=self._other_matches + [self._anchor_col])
         return df
 
-    def  _reduce_matched_cols_into_one_value_or_invalidate(self,
-                                                           df: DataFrame,
-                                                           base_condition: Column,
-                                                           validity_column: str,
-                                                           key_cols: List[str],
-                                                           match_cols: List[str]):
-            """
-            This function is used for delivering one row per each key
-            When all the rows for a key produce one value at most for each matched col (all together),
-            then it is marked as valid (not marked invalid actually) and it is reduced
-            into just one row with those values.
-            When there is more than one value then all rows for the key  are just marked as invalid
-            This invalidity is just  for specific purpose, we use it for the purpose of being a start point
-            At the end we just call distinct
+    def  reduce_and_validate_transaction_start_points(self,
+                                                      df: DataFrame,
+                                                      key_cols: List[str],
+                                                      match_cols: List[str]) -> DataFrame:
+        """
+            We have a list of key columns that form a potential start point.
+            Practically in our case it is either (time_col,status(=start), match_col) or (time_col,status(=start), anchor_col)
+            We then look into the matched_cols. These will practically be
+                (anchor_col, other_matches) or (match_col, other_match_es) accordingly in our case
+            We have to make sure that per each key tuple there can be only one matched value for the other columns
+            Per each row tuple we end up with either one reduced row and a validity column set to valid,
+            or we keep the original rows and marks them as invalid start points. While invalid, as
+            start points these columns are still valid to end another match started earlier
+
+
+            1) Row(s=start,t=1,anchor_col=1,match_col=1,other_match_col1=1) - will be marked valid
+
+            2) Row(s=start,t=1,anchor_col=1,match_col=1,other_match_col1=1)
+               Row(s=start,t=1,anchor_col=1,match_col=1,other_match_col1=2)
+              Will be marked NOT valid because more than one match of other_match_col1 per (t=1,match_col=1)
+
+            3) Row(s=start,t=1,anchor_col=1,match_col=1,other_match_col1=1)
+                Row(s=start,t=1,anchor_col=1,match_col=1,other_match_col1=None)
+                Will be marked valid because and reduced to one row
+                as Row(t=1,anchor_col=1,match_col=1,other_match_col1=1)
+
+            4) Row(t=1,anchor_col=2,match_col=1,other_match_col1=1)
+                Row(t=1,anchor_col=1,match_col=1,other_match_col1=None)
+                Will be marked invalid because more than one match for (t=1,match_col=1) column  with same match_col
+
+            5) Row(t=1,anchor_col=1,match_col=1,other_match_col1=1)
+               Row(t=1,anchor_col=1,match_col=2,other_match_col1=None)
+               Will be marked invalid because more than one match for anchor column  with same match_col
+
+
+            return:
             :param df: DataFrame
-            :param base_condition: filter the rows of relevance
-            :param validity_column:  The column where to mark rows of relevance as invalid
             :param key_cols: The cols making the key - valid rows will be reduced into one row for each key
-            :param match_cols: The columns where we check validity and we reduce into one value
+            :param match_cols: columns we have to collect values for and make sure there is not more than one
             :return:
             :rtype: DataFrame
-            """
-            assert  len(key_cols)+len(match_cols)+len([validity_column]) == len(set(key_cols+match_cols+[validity_column])), 'There is intersection of exclusive columns sets'
-            f_agg_column = lambda x: f'{x}_values'
-            window_spec = Window.partitionBy(*key_cols)
-            agg_expressions = [F.collect_set(column).over(window_spec).alias(f_agg_column(column)) for column in match_cols]
-            df_agg = df.select(df.columns+agg_expressions)
-            for col in match_cols:
-                condition = base_condition & (F.size(f_agg_column(col))>1)
-                df_agg = df_agg.withColumn(validity_column,
-                    F.when(condition, F.lit(False)).otherwise(F.col(validity_column)))
-                condition = base_condition & (F.size(F.col(f_agg_column(col))) == 1)
-                df_agg = df_agg.withColumn(col,F.when(condition,F.col(f_agg_column(col)).getItem(0)).otherwise(F.col(col)))
-            df_agg=df_agg.drop(*[f_agg_column(column) for column in match_cols])
-            return df_agg.distinct()
+        """
+        assert  len(key_cols)+len(match_cols)+len([self._start_validity_column]) == len(set(key_cols+match_cols+[self._start_validity_column])), 'There is intersection of exclusive columns sets'
+        assert len(set(df.columns).intersection(set(key_cols+match_cols))) == len(key_cols+match_cols), 'the key  and match columns are in the schema'
+        f_agg_column = lambda x: f'{x}_values'
+        window_spec = Window.partitionBy(*key_cols)
+        agg_expressions = [F.collect_set(column).over(window_spec).alias(f_agg_column(column)) for column in match_cols]
+        df_agg = df.select(df.columns+agg_expressions)
+        for col in match_cols:
+            condition = self._start_condition & (F.size(f_agg_column(col))>1)
+            df_agg = df_agg.withColumn(self._start_validity_column,
+                F.when(condition, F.lit(False)).otherwise(F.col(self._start_validity_column)))
+            condition = self._start_condition & (F.size(F.col(f_agg_column(col))) == 1)
+            df_agg = df_agg.withColumn(col,F.when(condition,F.col(f_agg_column(col)).getItem(0)).otherwise(F.col(col)))
+        df_agg=df_agg.drop(*[f_agg_column(column) for column in match_cols])
+        return df_agg.distinct()
 
 
     def _create_transaction_window_partitioned_by_hero(self) -> WindowSpec:
-        return Window.partitionBy(self._hero_col).orderBy(self._time_col, self._matched_col, self._status_col)
+        return Window.partitionBy(self._anchor_col).orderBy(self._time_col, self._matched_col, self._status_col)
     def _create_transaction_window_partitioned_by_matched(self) -> WindowSpec:
-        return Window.partitionBy(self._matched_col).orderBy(self._time_col, self._hero_col, self._status_col)
+        return Window.partitionBy(self._matched_col).orderBy(self._time_col, self._anchor_col, self._status_col)
 
     def _build_transaction_end_when(self,cond: Column,
                                    output_col: str,
@@ -255,27 +270,20 @@ class FindMatchRange:
 
 
 
-    def prepare_matches(
-                    self,
-                    df: DataFrame) -> DataFrame:
-        df = self._initialize_dataframe(df)
-        df = self.prepare_valid_transaction_start_events(df)
-        df = self._mark_end_time_with_ending_reason(df, match_columns=[self._hero_col, self._matched_col])
-        return  df.distinct()
 
 
-    def get_close_transactions(self, df):
+    def _get_close_transactions(self, df):
         df = df.where(F.col(self.END_TIME_COL).isNotNull())
-        window_spec:WindowSpec = Window.partitionBy(self._hero_col,self._matched_col,self.START_TIME_COL).orderBy(self._time_col)
+        window_spec:WindowSpec = Window.partitionBy(self._anchor_col, self._matched_col, self.START_TIME_COL).orderBy(self._time_col)
         df = df.withColumn('final_end_time',F.first(self.END_TIME_COL).over(window_spec))
         df = df.withColumn('final_end_reason',F.first(self.END_REASON_COL).over(window_spec)).drop('end_time','end_reason')
         df = df.where(F.col('final_end_time') == F.col('end_time')).orderBy('start_time')
         return df
 
 
-    def get_connect_succeeding_transactions(self, df):
+    def _connect_succeeding_transactions(self, df):
         df = df.where(F.col('final_end_time').isNotNull())
-        window_spec:WindowSpec = Window.partitionBy(self._hero_col,self._matched_col).orderBy(self.START_TIME_COL)
+        window_spec:WindowSpec = Window.partitionBy(self._anchor_col, self._matched_col).orderBy(self.START_TIME_COL)
         has_upper_neighbor = F.lead('start_time').over(window_spec) == F.col('final_end_time')
         has_lower_neighbor = F.lag('final_end_time').over(window_spec) == F.col('start_time')
         df = df.withColumn('neighbors_status',
@@ -286,3 +294,11 @@ class FindMatchRange:
         df = df.withColumn('final_end_time',F.when(F.col('neighbors_status') == 1,F.lead('final_end_time').over(window_spec)).otherwise(F.col('final_end_time')))
         df = df.where(F.col('neighbors_status').isin(*[1,0]))
         return df
+    def prepare_transactions(
+                    self,
+                    df: DataFrame) -> DataFrame:
+        df_normalized = self._initialize_dataframe(df)
+        df = self._prepare_valid_transaction_start_points(df_normalized)
+        df = self._mark_end_time_with_ending_reason(df, match_columns=[self._anchor_col, self._matched_col])
+        df = self._connect_succeeding_transactions(df)
+        return  df_normalized,df.distinct()

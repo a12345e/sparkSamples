@@ -1,25 +1,18 @@
 from pyspark.sql import SparkSession
+import pytest
 
-
-def create_spark_session():
+@pytest.fixture(scope='session')
+def spark():
     # Create a Spark session
-    spark = SparkSession.builder \
+    print('create spark session ...')
+    session = SparkSession.builder \
         .appName("PySpark Test Session") \
         .master("local[*]") \
         .getOrCreate()
-    return spark
+    print('created spark session')
+    yield session
+    print('stop spark session ...')
+    session.stop()
+    print('stop spark session stopped')
 
-class DefaultSparkFactory:
-    _instances = {}
-
-    def __new__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            instance = super().__new__(cls)
-            cls._instances[cls] = instance
-            cls._spark = create_spark_session()
-        return cls._instances[cls]
-
-    @property
-    def spark(self):
-        return self._spark
 

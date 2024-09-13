@@ -1,41 +1,56 @@
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-from tests.infra.dataframes_helpers import print_dataframe_schema_and_rows
+import pytest
 
-# Initialize Spark session
-spark = SparkSession.builder.appName("array_of_tuples").getOrCreate()
 
-# Sample data with key and value columns
-data = [
-    ("1", 1, 11),
-    ("2", 2,12),
-    ("3", 3, 13),
-    ("4", 4, 14)
+from datetime import datetime, timedelta
+
+import pytest
+from pyspark import Row
+
+testdata = [
+    (datetime(2001, 12, 12), datetime(2001, 12, 11), timedelta(1)),
+    (datetime(2001, 12, 11), datetime(2001, 12, 12), timedelta(-1)),
+    (datetime(3001, 12, 11), datetime(3001, 12, 12), timedelta(-1))
 ]
 
-schema = ["id", "key1", "value1"]
 
-df = spark.createDataFrame(data, schema)
 
-# Step 1: Create an array of 2-tuples (key, value)
-array_of_tuples = F.array(
-    F.struct(F.lit(1).alias('kaka'), F.col("value1"))
+
+
+@pytest.mark.parametrize("a,b,expected", testdata)
+def test_timedistance_v0(a, b, expected):
+    row = Row()
+    row2 = Row()
+    x = row2 == row
+    diff = a - b
+    assert diff == expected
+
+@pytest.mark.parametrize("a,b,expected", testdata, ids=["forward", "backward","kaka"])
+def test_timedistance_v1(a, b, expected):
+    diff = a - b
+    assert diff == expected
+
+def idfn(val):
+    if isinstance(val, (datetime,)):
+        # note this wouldn't show any hours/minutes/seconds
+        return val.strftime("%Y%m%d")
+
+
+@pytest.mark.parametrize("a,b,expected", testdata, ids=idfn)
+def test_timedistance_v2(a, b, expected):
+    diff = a - b
+    assert diff == expected
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        pytest.param(
+            datetime(2001, 12, 12), datetime(2001, 12, 11), timedelta(1), id="forward"
+        ),
+        pytest.param(
+            datetime(2001, 12, 11), datetime(2001, 12, 12), timedelta(-1), id="backward"
+        ),
+    ],
 )
-
-df_with_tuples = df.withColumn("array_of_tuples", array_of_tuples)
-
-# Step 2: Optionally, add more tuples to the array
-# If you want to append more tuples, you can use concat like this:
-# df_with_tuples = df_with_tuples.withColumn("array_of_tuples",
-#                                            F.concat(F.col("array_of_tuples"),
-#                                            F.array(F.struct(F.lit("new_key"), F.lit("new_value")))))
-
-# Step 3: Explode the array of tuples into individual rows
-df_exploded = df_with_tuples.withColumn("exploded_tuple", F.explode("array_of_tuples"))
-
-print_dataframe_schema_and_rows(df_exploded)
-# Step 4: Extract 'key' and 'value' from the exploded tuples
-df_final = df_exploded.withColumn("key", F.col("exploded_tuple.kaka")) \
-                      .withColumn("value", F.col("exploded_tuple.value1"))
-
-print_dataframe_schema_and_rows(df_final)
+def test_timedistance_v3(a, b, expected):
+    diff = a - b
+    assert diff == expected
