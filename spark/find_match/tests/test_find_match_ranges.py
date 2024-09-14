@@ -144,66 +144,67 @@ def test_prepare_valid_transaction_start_points(spark, anchor, input_rows, expec
         NEXT_START_FOR_SAME_MATCH = 'next_match_start'
 """
 @pytest.mark.parametrize("input_rows, expected_rows",[
-#     pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#                 Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True)],
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',end_time=2),
-#          Row(a=0, b=0,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='simple  start end')
-#     , pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',end_time=1),
-#          Row(a=0, b=0,status=3,t=1, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='simple  start end same time')
-#
-#     , pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=0, status=3, t=0, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason=None,end_time=None),
-#          Row(a=0, b=0,status=3,t=0, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='end time before start time')
+    pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+                Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True)],
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_same',end_time=2),
+         Row(a=0, b=0,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='simple  start end'),
+    pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True)],
+        [
+        Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None) ,
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason=None, end_time=None) ,
+        ], id='simple  start end same time')
 
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=None, status=3, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_null',end_time=2),
-#          Row(a=0, b=None,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next match null'),
-#
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start_different',end_time=2),
-#          Row(a=0, b=1,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing'),
+    , pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=0, status=3, t=0, o1=1, o2=1, v=True)],
 
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=1, b=0, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start_different',end_time=2),
-#          Row(a=1, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing')
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason=None,end_time=None),
+         Row(a=0, b=0,status=3,t=0, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='end time before start time'),
 
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=2),
-#          Row(a=0, b=1,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing'),
-#
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=1, b=0, status=3, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=2),
-#          Row(a=1, b=0,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing')
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=None, status=3, t=2, o1=1, o2=1, v=True)],
 
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start',end_time=2),
-#          Row(a=0, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start now with anchor changing')
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_null',end_time=2),
+         Row(a=0, b=None,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next match null'),
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start_different',end_time=2),
+         Row(a=0, b=1,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start_different now with match changing'),
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=1, b=0, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start_different',end_time=2),
+         Row(a=1, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing'),
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=2),
+         Row(a=0, b=1,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next_match_end_different now with match changing'),
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=1, b=0, status=3, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=2),
+         Row(a=1, b=0,status=3,t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='next_match_start_different now with anchor changing'),
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_start',end_time=2),
+         Row(a=0, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason=None,end_time=None)], id='next_match_start same parties'),
 
      pytest.param(
 [
@@ -241,8 +242,7 @@ def test_prepare_valid_transaction_start_points(spark, anchor, input_rows, expec
         ],
          id='condition when we get two endings of type next_match_end_different and one of them has lower time'
             '. Also we see that ending for same key of (anchor, time) does not have any influence because we'
-            'decided that we take descending order of ')
-
+            'decided that we take descending order of status and that means start after end (1 after 3)')
 
 ])
 def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
@@ -267,7 +267,9 @@ def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
                          ])
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=["a","b"])
+    print_dataframe_schema_and_rows(df_a)
     df_e = RowsBuilder(output_schema,spark).add_rows(expected_rows).df
+    print_dataframe_schema_and_rows(df_e)
     compare_dataframes(df_e,df_a)
 
 
