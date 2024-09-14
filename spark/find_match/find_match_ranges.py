@@ -198,14 +198,13 @@ class TransactionAnalysis:
         df = df.withColumn(self.END_TIME_MAP_ARRAY_COL, F.array())
         curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
         df = df.withColumn(self.START_TIME_COL, F.when(curren_status_is_start, F.col(self._time_col)))
-
         df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[0],match_col=match_columns[1])
         df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[1],match_col=match_columns[0])
-
         df = df.select("*",F.explode_outer(F.col( self.END_TIME_MAP_ARRAY_COL)).alias(self.END_TIME_MAP_COL))
         df = df.withColumn(self.END_REASON_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_REASON_COL))
         df = df.withColumn(self.END_TIME_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_TIME_COL))
-        return df.drop( self.END_TIME_MAP_COL, self.END_TIME_MAP_ARRAY_COL ).distinct()
+        df = df.drop( self.END_TIME_MAP_COL, self.END_TIME_MAP_ARRAY_COL ).distinct()
+        return df
 
     def _build_transaction_end_when(self, cond: Column,
                                     output_col: str,
@@ -232,16 +231,22 @@ class TransactionAnalysis:
                                 match_col: str):
         """
         Notice that input is that the match for each start we have not nul anchor and match values
-        Notice that also there is one row only for start  of a match at specific time
+        The assumption is that start rows marked valid have unique key (time,anchor)
+        This is because we made that in preparation before.
+        The descending order in the window below of the status column is to avoid taking into account
+        end rows for the same (time,anchor) will not be an option for ending transaction
+        The usage of _matched_col in the order by, is just for determinism of the result, and preference
+        of ending not involving null matched  col
+
         :param df:
         :param anchor_col:
         :param match_col:
         :return: DataFrame
         """
-        window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(self._time_col, match_col, self._status_col)
+        order_by = [F.col(self._time_col).asc(),F.col(self._status_col).desc(),F.col(self._matched_col).desc()]
+        window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(*order_by)
 
         same_anchor =  F.col(anchor_col) == F.lead(anchor_col, 1).over(window_spec)
-        time_is_later = F.col(self._time_col) < F.lead(self._time_col).over(window_spec)
         next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START.value
         next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END.value
         next_match_is_null = F.lead(match_col, 1).over(window_spec).isNull()
@@ -295,7 +300,6 @@ class TransactionAnalysis:
                            F.when(has_upper_neighbor & has_lower_neighbor, 3).
                            otherwise(F.when(has_upper_neighbor,1).otherwise(F.when(has_lower_neighbor,2).otherwise(0))))
         df = df.where(F.col('neighbors_status').isin(*[2,1,0]))
-        df.show()
         df = df.withColumn('final_end_time',F.when(F.col('neighbors_status') == 1,F.lead('final_end_time').over(window_spec)).otherwise(F.col('final_end_time')))
         df = df.where(F.col('neighbors_status').isin(*[1,0]))
         return df

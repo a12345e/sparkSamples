@@ -207,14 +207,41 @@ def test_prepare_valid_transaction_start_points(spark, anchor, input_rows, expec
 
      pytest.param(
 [
-        Row(a=0, b=None, status=3, t=12, o1=1, o2=1, v=True),
-        Row(a=1, b=0, status=3, t=13, o1=1, o2=1, v=True),
-        Row(a=0, b=1, status=3, t=3, o1=1, o2=1, v=True),
-        # Row(a=0, b=0, status=3, t=10, o1=1, o2=1, v=True),
-        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True)],
 
-        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different',end_time=3),
-         Row(a=0, b=0,status=1,t=3, o1=1, o2=1, v=True, start_time=None, end_reason=None,end_time=None)], id='choose minimum end among few')
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True), # the start row with time =1
+        #  -- all the following have time <= 1 so not have any impact
+        Row(a=0, b=0, status=3, t=0, o1=1, o2=11, v=True),
+        Row(a=0, b=0, status=3, t=1, o1=1, o2=12, v=True),
+        Row(a=0, b=1, status=3, t=1, o1=1, o2=13, v=True),
+        Row(a=1, b=0, status=3, t=1, o1=1, o2=14, v=True),
+        Row(a=0, b=None, status=3, t=1, o1=1, o2=15, v=True),
+        Row(a=None, b=0, status=3, t=1, o1=1, o2=16, v=True),
+
+        #these two are in less preference than the next two because of nulls less preferred then values
+        Row(a=0, b=None, status=3, t=2, o1=1, o2=17, v=True),
+        Row(a=None, b=0, status=3, t=3, o1=1, o2=18, v=True),
+
+        #these two provide two same type of ending yet later the earlier will be chosen
+        Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True),
+        Row(a=1, b=0, status=3, t=3, o1=1, o2=1, v=True),
+],
+        [
+            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different', end_time=2) ,
+            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_null', end_time=3) ,
+            Row(a=0, b=None, status=3, t=1, o1=1, o2=15, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=0, b=None, status=3, t=2, o1=1, o2=17, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=0, b=0, status=3, t=0, o1=1, o2=11, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=None, b=0, status=3, t=1, o1=1, o2=16, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=0, b=0, status=3, t=1, o1=1, o2=12, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=1, b=0, status=3, t=1, o1=1, o2=14, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=None, b=0, status=3, t=3, o1=1, o2=18, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=1, b=0, status=3, t=3, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=0, b=1, status=3, t=1, o1=1, o2=13, v=True, start_time=None, end_reason=None, end_time=None) ,
+            Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True, start_time=None, end_reason=None, end_time=None) ,
+        ],
+         id='condition when we get two endings of type next_match_end_different and one of them has lower time'
+            '. Also we see that ending for same key of (anchor, time) does not have any influence because we'
+            'decided that we take descending order of ')
 
 
 ])
@@ -240,9 +267,7 @@ def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
                          ])
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=["a","b"])
-    df_a.show(truncate=False)
     df_e = RowsBuilder(output_schema,spark).add_rows(expected_rows).df
-    df_e.show(truncate=False)
     compare_dataframes(df_e,df_a)
 
 
