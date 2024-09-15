@@ -243,7 +243,10 @@ class TransactionAnalysis:
         :param match_col:
         :return: DataFrame
         """
-        order_by = [F.col(self._time_col).asc(),F.col(self._status_col).desc(),F.col(self._matched_col).desc()]
+        print(f'anchor={anchor_col}')
+        print(f'match={match_col}')
+        order_by = [F.col(anchor_col).asc_nulls_last(),F.col(self._time_col).asc_nulls_last(),F.col(self._status_col).desc_nulls_last(),F.col(match_col).asc_nulls_last()] + \
+                   [F.col(col).asc_nulls_last() for col in self._other_matches]
         window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(*order_by)
 
         same_anchor =  F.col(anchor_col) == F.lead(anchor_col, 1).over(window_spec)
