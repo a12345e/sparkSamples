@@ -219,12 +219,12 @@ def test_prepare_valid_transaction_start_points(spark, anchor, input_rows, expec
         Row(a=None, b=0, status=3, t=1, o1=1, o2=16, v=True),
 
         #these two are in less preference than the next two because of nulls less preferred then values
+        Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True),
+        Row(a=1, b=0, status=3, t=3, o1=1, o2=1, v=True),
         Row(a=0, b=None, status=3, t=2, o1=1, o2=17, v=True),
         Row(a=None, b=0, status=3, t=3, o1=1, o2=18, v=True),
 
         #these two provide two same type of ending yet later the earlier will be chosen
-        Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=True),
-        Row(a=1, b=0, status=3, t=3, o1=1, o2=1, v=True),
 ],
         [
             Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason='next_match_end_different', end_time=2) ,
