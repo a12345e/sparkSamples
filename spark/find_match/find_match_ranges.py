@@ -277,8 +277,6 @@ class TransactionAnalysis:
         :param b_col:
         :return: DataFrame
         """
-        print(f'anchor={a_col}')
-        print(f'match={b_col}')
         order_by = [F.col(a_col).asc_nulls_last(),
                     F.col(self._time_col).asc(),
                     F.col(self._status_col).desc(),
