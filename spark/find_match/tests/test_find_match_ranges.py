@@ -178,86 +178,86 @@ def test__prepare_valid_transaction_start_points(spark, anchor, input_rows, expe
 
 
 @pytest.mark.parametrize("input_rows, expected_rows",[
-#     pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#                 Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True)],
-#         [
-#         Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value, end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.name, end_time=2) ,
-#         Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True, start_time=None, end_reason_ordinal=None, end_reason_name=None, end_time=None) ,
-#         ], id='simple  start end'),
-#     pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=False)],
-#         [
-#         Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None, end_time=None) ,
-#         Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=None,end_reason_name=None, end_time=None) ,
-#         ], id='simple  start end same time so no transaction')
-#
-#     , pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=0, status=3, t=0, o1=1, o2=1, v=False)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=None,end_reason_name=None),
-#          Row(a=0, b=0,status=3,t=0, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='end time before start time so no transaction'),
-#
-#     pytest.param(
-#         [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#          Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=False)],
-#
-#         [Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None, end_reason_name=None, end_time=None),
-#             Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
-#              end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.value,
-#              end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.name, end_time=2)],id='end with match break'),
-#
-#          pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=None, status=3, t=2, o1=1, o2=1, v=False)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.name,end_time=2),
-#          Row(a=0, b=None,status=3,t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next match null'),
-#
-#
-#          pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1,end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.name,end_time=2),
-#          Row(a=0, b=1,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next start transaction breaking incumbent match'),
-#
-#
-#
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=1, b=0, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1,end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.name,end_time=2),
-#          Row(a=1, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next start match break'),
-#
-#     pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=None, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1,end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.name,end_time=2),
-#          Row(a=0, b=None,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next start match null'),
-#
-#
-#     pytest.param(
-#         [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#          Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True)],
-#
-#         [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
-#              end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_SAME_MATCH.value,
-#              end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_SAME_MATCH.name, end_time=2),
-#          Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True, start_time=2,end_reason_ordinal=None,end_reason_name=None, end_time=None)],
-#         id='next start match with same match'),
-#
-#
-#      pytest.param(
-# [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-#         Row(a=0, b=1, status=2, t=2, o1=1, o2=1, v=False)],
-#
-#         [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.name,end_time=2),
-#          Row(a=0, b=1,status=2,t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next match break by update '),
+    pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+                Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True)],
+        [
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value, end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.name, end_time=2) ,
+        Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=True, start_time=None, end_reason_ordinal=None, end_reason_name=None, end_time=None) ,
+        ], id='simple  start end'),
+    pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=False)],
+        [
+        Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None, end_time=None) ,
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=None,end_reason_name=None, end_time=None) ,
+        ], id='simple  start end same time so no transaction')
+
+    , pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=0, status=3, t=0, o1=1, o2=1, v=False)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=None,end_reason_name=None),
+         Row(a=0, b=0,status=3,t=0, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='end time before start time so no transaction'),
+
+    pytest.param(
+        [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+         Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=False)],
+
+        [Row(a=0, b=1, status=3, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None, end_reason_name=None, end_time=None),
+            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
+             end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.value,
+             end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.name, end_time=2)],id='end with match break'),
+
+         pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=None, status=3, t=2, o1=1, o2=1, v=False)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.name,end_time=2),
+         Row(a=0, b=None,status=3,t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next match null'),
+
+
+         pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1,end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.name,end_time=2),
+         Row(a=0, b=1,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next start transaction breaking incumbent match'),
+
+
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=1, b=0, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1,end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_BREAK.name,end_time=2),
+         Row(a=1, b=0,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next start match break'),
+
+    pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=None, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1,end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.name,end_time=2),
+         Row(a=0, b=None,status=1,t=2, o1=1, o2=1, v=True, start_time=2, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next start match null'),
+
+
+    pytest.param(
+        [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+         Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True)],
+
+        [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
+             end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_START_SAME_MATCH.value,
+             end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_START_SAME_MATCH.name, end_time=2),
+         Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=True, start_time=2,end_reason_ordinal=None,end_reason_name=None, end_time=None)],
+        id='next start match with same match'),
+
+
+     pytest.param(
+[Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
+        Row(a=0, b=1, status=2, t=2, o1=1, o2=1, v=False)],
+
+        [Row(a=0, b=0,status=1,t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.value,end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.name,end_time=2),
+         Row(a=0, b=1,status=2,t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,end_reason_name=None,end_time=None)], id='next match break by update '),
 
      pytest.param(
 [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
@@ -338,10 +338,12 @@ def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
 @pytest.mark.parametrize("input_rows, expected_rows",[
 pytest.param(
     [
-        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=1,
-            end_reason_name='NEXT_UPDATE_MATCH_NULL', end_time=2),
-        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=1,
-            end_reason_name='NEXT_END_FOR_SAME_MATCH', end_time=2),
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.value,
+            end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.name, end_time=2),
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.value,
+            end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.name, end_time=2),
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value,
+            end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.name, end_time=3),
         Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
             end_reason_name=None, end_time=None),
         Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True, start_time=None, end_reason_ordinal=None, end_reason_name=None,
@@ -349,10 +351,11 @@ pytest.param(
         Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
             end_reason_name=None, end_time=None),
     ],
-  [
-    Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=2,  final_end_reason='NEXT_END_FOR_SAME_MATCH')
-      ]
-    , id=' most simple ending'),
+    [
+        Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=2,
+            final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.name),
+    ]
+    , id=' we teke the first match break then preference between end reasons in the same end time'),
 
 ])
 def test_choose_final_transactions_end(spark, input_rows, expected_rows):
@@ -369,13 +372,13 @@ def test_choose_final_transactions_end(spark, input_rows, expected_rows):
                 StructField('end_time', IntegerType(), True)])
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._choose_final_transactions_end(df_a)
-    print_dataframe_schema_and_rows(df_a)
     output_schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),
                          StructField('status', IntegerType(), True), StructField('t', IntegerType(), True),
                          StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True),
                          StructField('v', BooleanType(), True), StructField('start_time', IntegerType(), True),
                          StructField('final_end_time', IntegerType(), True),
                          StructField('final_end_reason', StringType(), True)])
+
     df_e = RowsBuilder(output_schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_a, df_e)
 
@@ -389,10 +392,35 @@ def test_connect_succeeding_transactions(spark):
                          StructField('final_end_reason', StringType(), True)])
     rows = [
     Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=21,
-        final_end_reason='next_match_end_different'),
+        final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_MATCH_BREAK.name),
     Row(a=1, b=1, status=1, t=21, o1=1, o2=1, v=True, start_time=21, final_end_time=25,
-        final_end_reason='next_match_end')
-        ]
+        final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.name),
+    Row(a=1, b=1, status=1, t=25, o1=1, o2=1, v=True, start_time=25, final_end_time=30,
+            final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.name),
+
+    Row(a=2, b=2, status=1, t=21, o1=1, o2=1, v=True, start_time=21, final_end_time=25,
+        final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.name),
+    Row(a=2, b=2, status=1, t=25, o1=1, o2=1, v=True, start_time=25, final_end_time=30,
+            final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.name),
+
+    Row(a=1, b=1, status=1, t=21, o1=1, o2=1, v=True, start_time=51, final_end_time=60,
+        final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_NULL.name),
+    Row(a=1, b=1, status=1, t=25, o1=1, o2=1, v=True, start_time=60, final_end_time=78,
+            final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_START_MATCH_NULL.name)
+    ]
     df  = RowsBuilder(schema, spark).add_rows(rows).df
     df_a = find_match_ranges._connect_succeeding_transactions(df)
-    print_dataframe_schema_and_rows(df_a)
+    output_schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True),
+                         StructField('status', IntegerType(), True), StructField('t', IntegerType(), True),
+                         StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True),
+                         StructField('v', BooleanType(), True), StructField('start_time', IntegerType(), True),
+                         StructField('final_end_time', IntegerType(), True),
+                         StructField('final_end_reason', StringType(), True)
+                         ])
+    output_rows =[
+Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=30, final_end_reason='NEXT_END_MATCH_BREAK') ,
+Row(a=1, b=1, status=1, t=21, o1=1, o2=1, v=True, start_time=51, final_end_time=78, final_end_reason='NEXT_END_NULL') ,
+Row(a=2, b=2, status=1, t=21, o1=1, o2=1, v=True, start_time=21, final_end_time=30, final_end_reason='NEXT_END_NULL') ,
+        ]
+    df_e = RowsBuilder(output_schema, spark).add_rows(output_rows).df
+    compare_dataframes(df_a, df_e)

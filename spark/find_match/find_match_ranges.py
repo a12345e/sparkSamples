@@ -329,11 +329,12 @@ class TransactionAnalysis:
 
     def _choose_final_transactions_end(self, df):
         df = df.where(F.col(self.END_TIME_COL).isNotNull())
-        window_spec:WindowSpec = Window.partitionBy(self._a_col, self._b_col, self.START_TIME_COL).orderBy(*[F.col(self._time_col), F.col(self.END_REASON_ORDINAL).asc()])
+        window_spec:WindowSpec = Window.partitionBy(self._a_col, self._b_col, self.START_TIME_COL).orderBy(*[F.col(self.END_TIME_COL), F.col(self.END_REASON_ORDINAL).asc()])
         df = df.withColumn('final_end_time',F.first(self.END_TIME_COL).over(window_spec))
         df = df.withColumn('final_end_reason', F.first(self.END_REASON_NAME).over(window_spec))
         df = df.drop(self.END_TIME_COL, self.END_REASON_ORDINAL, self.END_REASON_NAME)
         df = df.where(F.col('final_end_time') == F.col('end_time')).orderBy('start_time')
+        df = df.distinct()
         return df
 
 
@@ -348,7 +349,9 @@ class TransactionAnalysis:
         df = df.where(F.col('neighbors_status').isin(*[2,1,0]))
         df = df.withColumn('final_end_time',F.when(F.col('neighbors_status') == 1,F.lead('final_end_time').over(window_spec)).otherwise(F.col('final_end_time')))
         df = df.where(F.col('neighbors_status').isin(*[1,0]))
-        return df
+        df = df.orderBy(self._a_col,self._b_col,'start_time')
+        df = df.drop('neighbors_status')
+        return df.distinct()
     def prepare_transactions(
                     self,
                     df: DataFrame) -> DataFrame:
