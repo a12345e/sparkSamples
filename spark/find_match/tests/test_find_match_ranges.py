@@ -130,7 +130,7 @@ def test_reduce_and_validate_transaction_start_points_with_a_col_in_keys(spark, 
     df_e = RowsBuilder(schema,spark).add_rows(expected_rows).df
     compare_dataframes(df_e,df_a)
 
-@pytest.mark.parametrize("anchor, input_rows, expected_rows",[
+@pytest.mark.parametrize("default_row, input_rows, expected_rows",[
         pytest.param(Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True)
             ,[Row()],[Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True)], id='one full row with start validation=true is valid'),
         pytest.param(Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True)
@@ -160,7 +160,7 @@ def test_reduce_and_validate_transaction_start_points_with_a_col_in_keys(spark, 
                  id='Valid because values of a there is only one none null value for o1,o2'),
 
 ])
-def test__prepare_valid_transaction_start_points(spark, anchor, input_rows, expected_rows):
+def test__prepare_valid_transaction_start_points(spark, default_row, input_rows, expected_rows):
     schema = StructType([StructField("a", IntegerType(), True),
                          StructField("b", IntegerType(), True),
                          StructField("status", IntegerType(), True),
@@ -169,7 +169,7 @@ def test__prepare_valid_transaction_start_points(spark, anchor, input_rows, expe
                          StructField("o2", IntegerType(), True),
                          StructField("v", BooleanType(), True),
                          ])
-    df_a = RowsBuilder(schema, spark, anchor).add_rows(input_rows).df
+    df_a = RowsBuilder(schema, spark, default_row).add_rows(input_rows).df
     df_a = find_match_ranges._prepare_valid_transaction_start_points(df=df_a)
     df_e = RowsBuilder(schema,spark).add_rows(expected_rows).df
     compare_dataframes(df_e,df_a)
