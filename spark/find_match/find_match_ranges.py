@@ -20,21 +20,27 @@ class TransactionAnalysis:
 
 
     class EndingTransactionReason(Enum):
-        NEXT_END_FOR_SAME_MATCH = 'next_match_end_same' # the normal start end events for the same transaction
-        NEXT_END_NULL = 'next_match_end_null'
-        NEXT_START_DIFFERENT_MATCH = 'next_match_start_different'
-        NEXT_END_DIFFERENT_MATCH = 'next_match_end_different'
-        NEXT_START_FOR_SAME_MATCH = 'next_match_start'
+        NEXT_END_FOR_SAME_MATCH=1 # the normal start end events for the same transaction
+        NEXT_END_MATCH_BREAK=2
+        NEXT_END_NULL = 3
+        NEXT_START_MATCH_BREAK = 4
+        NEXT_START_SAME_MATCH = 5
+        NEXT_START_MATCH_NULL = 6
+        NEXT_UPDATE_MATCH_BREAK = 7
+        NEXT_UPDATE_MATCH_NULL = 8
+
+
 
     START_TIME_COL = 'start_time'
     END_TIME_COL = 'end_time'
-    END_REASON_COL = 'end_reason'
+    END_REASON_ORDINAL = 'end_reason_ordinal'
+    END_REASON_NAME = 'end_reason_name'
     END_TIME_MAP_COL = 'end_time_map'
-    END_TIME_MAP_ARRAY_COL = 'end_time_map_array'
+    END_EVENTS_ARRAY_COL = 'end_events_array_col'
 
     def __init__(self,
-                 anchor_col: str,
-                 matched_col: str,
+                 a_col: str,
+                 b_col: str,
                  time_col: str,
                  status_col: str,
                  status_namings: 'Dict[Status, int]',
@@ -42,15 +48,16 @@ class TransactionAnalysis:
                  start_valid_column: str,
                  ending_conditions=None):
 
-        self._anchor_col = anchor_col
-        self._matched_col = matched_col
+        self._a_col = a_col
+        self._b_col = b_col
         self._time_col = time_col
         self._status_col = status_col
         self._status_namings = status_namings
         self._other_matches = other_matches
         self._start_validity_column = start_valid_column
-        given_cols = [self._start_validity_column, self._anchor_col, self._matched_col, self._time_col, self._status_col] + other_matches
+        given_cols = [self._start_validity_column, self._a_col, self._b_col, self._time_col, self._status_col] + other_matches
         assert len(set(given_cols)) == 5+len(other_matches), 'Some columns defied twice!!'
+        self._optional_initial_filters = []
 
         if ending_conditions is None:
             self._ending_conditions = [reason for reason in self.EndingTransactionReason]
@@ -71,64 +78,92 @@ class TransactionAnalysis:
         :param df:
         :return:
         """
-        mandatory_columns = set([self._anchor_col,
-                                                self._matched_col,self._status_col,
-                                                self._time_col]+self._other_matches)
+        mandatory_columns = set([self._a_col,
+                                 self._b_col, self._status_col,
+                                 self._time_col]+self._other_matches)
         assert len(set(df.columns).intersection(mandatory_columns))  == len(mandatory_columns)
         df = self._enumerate_status_column(df)
-        df = self._initial_filter_non_nulls_anchor_and_time_col(df)
-        df = self._avoid_match_col_null_on_start_status(df)
-        df = self._keep_only_start_end_status(df)
+        df = self._filter_avoid_null_time_col(df)
+        df = self._filter_avoid_a_col_and_b_col_null_together(df)
+        df = self._filter_optional(df)
+
         return df
 
-    @staticmethod
-    def _generate_name_plus_uuid(name: str):
-        return f"{name}_{uuid.uuid4().hex}"
+    def _filter_optional(self, df):
+        for transform in self._optional_initial_filters:
+            df = transform(df)
+        return df
 
-    def _initial_filter_non_nulls_anchor_and_time_col(self, df: DataFrame):
-        return df.where((F.col(self._anchor_col).isNotNull()) & (F.col(self._time_col).isNotNull()))
+    def _filter_avoid_a_col_and_b_col_null_together(self, df: DataFrame):
+        return df.where((F.col(self._a_col).isNotNull()) | (F.col(self._b_col).isNotNull()))
+
+    def filter_avoid_null_a_col(self):
+        """
+        Avoid using those rows even for ending a transaction
+        :return:
+        """
+        self._optional_initial_filters.append(lambda df: df.where(F.col(self._a_col).isNotNull()))
+        return self
+
+    def filter_avoid_null_b_col_when_status_is_start(self):
+        """
+        Avoid using those rows even for ending a transaction
+        :return:
+        """
+
+        self._optional_initial_filters.append(lambda df: df.where((F.col(self._b_col).isNotNull()) |
+                                                                  (F.col(self._status_col) != TransactionAnalysis.Status.START.value)))
+        return self
+
+    def filter_only_start_end_status(self):
+        """
+        Not use update status events even for ending a transaction
+        :return:
+        """
+        self._optional_initial_filters.append(lambda df: df.where(F.col(self._status_col).isin([self.Status.START.value, self.Status.END.value])))
+        return self
+
+    def _filter_avoid_null_time_col(self, df: DataFrame):
+        return df.where((F.col(self._a_col).isNotNull()) & (F.col(self._time_col).isNotNull()))
 
     def _enumerate_status_column(self, df:DataFrame) -> DataFrame:
         status_map = F.create_map([F.lit(k) for pair in self._status_namings.items() for k in pair])
-        return df.withColumn(self._status_col,
+        df = df.withColumn(self._status_col,
                              F.when(F.col(self._status_col).isin(list(self._status_namings.keys())),
                                   status_map.getItem(F.col(self._status_col))).otherwise(None))
+        return df
 
-    def _keep_only_start_end_status(self, df: DataFrame) -> DataFrame:
-        return df.where(F.col(self._status_col).isin([self.Status.START.value, self.Status.END.value]))
-
-    def _avoid_match_col_null_on_start_status(self, df: DataFrame) -> DataFrame:
-        return df.where((F.col(self._status_col) != self.Status.START.value) |
-                  (F.col(self._matched_col).isNotNull()))
 
 
     def _prepare_valid_transaction_start_points(self, df):
         """
         This function is calling twice the reduce_and_validate_transaction_start_points
-        See how it flips roles between the anchor_col and match_col
+        See how it flips roles between the a_col and b_col
         At the end we have one row per each valid starting point marked as valid with at most one value for
         the match columns, and all the other start point are just left with and invalid mark as it.
         :param df:
         :return:df
         """
-        df = df.withColumn(self._start_validity_column, F.lit(True))
-        df = self.reduce_and_validate_transaction_start_points(df,
-                                                               key_cols=[self._anchor_col,
+        df = df.withColumn(self._start_validity_column, F.when((F.col(self._status_col) == TransactionAnalysis.Status.START.value) &
+                                                               (F.col(self._a_col).isNotNull()) & (F.col(self._b_col).isNotNull()),
+                                                               F.lit(True)).otherwise(F.lit(False)))
+        df = self._reduce_and_validate_transaction_start_points(df,
+                                                                key_cols=[self._a_col,
                                                                             self._time_col],
-                                                               match_cols=self._other_matches+[self._matched_col])
-        df = self.reduce_and_validate_transaction_start_points(df,
-                                                               key_cols=[self._matched_col,
+                                                                match_cols=self._other_matches+[self._b_col])
+        df = self._reduce_and_validate_transaction_start_points(df,
+                                                                key_cols=[self._b_col,
                                                                             self._time_col],
-                                                               match_cols=self._other_matches + [self._anchor_col])
+                                                                match_cols=self._other_matches + [self._a_col])
         return df
 
-    def  reduce_and_validate_transaction_start_points(self,
-                                                      df: DataFrame,
-                                                      key_cols: List[str],
-                                                      match_cols: List[str]) -> DataFrame:
+    def  _reduce_and_validate_transaction_start_points(self,
+                                                       df: DataFrame,
+                                                       key_cols: List[str],
+                                                       match_cols: List[str]) -> DataFrame:
         """
             We have a list of key columns that form a potential start point.
-            Practically in our case it is either (time_col,status(=start), match_col) or (time_col,status(=start), anchor_col)
+            Practically in our case it is either (time_col,status(=start), b_col) or (time_col,status(=start), a_col)
             We then look into the matched_cols. These will practically be
                 (anchor_col, other_matches) or (match_col, other_match_es) accordingly in our case
             We have to make sure that per each key tuple there can be only one matched value for the other columns
@@ -181,9 +216,9 @@ class TransactionAnalysis:
 
 
     def _create_transaction_window_partitioned_by_hero(self) -> WindowSpec:
-        return Window.partitionBy(self._anchor_col).orderBy(self._time_col, self._matched_col, self._status_col)
+        return Window.partitionBy(self._a_col).orderBy(self._time_col, self._b_col, self._status_col)
     def _create_transaction_window_partitioned_by_matched(self) -> WindowSpec:
-        return Window.partitionBy(self._matched_col).orderBy(self._time_col, self._anchor_col, self._status_col)
+        return Window.partitionBy(self._b_col).orderBy(self._time_col, self._a_col, self._status_col)
 
     def _mark_end_time_with_ending_reason(
                                 self,
@@ -191,112 +226,120 @@ class TransactionAnalysis:
                                 match_columns: List[str]) -> DataFrame:
 
         assert self.END_TIME_MAP_COL not in df.columns, f'{self.END_TIME_MAP_COL} is temporary columns we not expect to see'
-        assert self.END_TIME_MAP_ARRAY_COL not in df.columns, f'{self.END_TIME_MAP_ARRAY_COL} is temporary columns we not expect to see'
+        assert self.END_EVENTS_ARRAY_COL not in df.columns, f'{self.END_EVENTS_ARRAY_COL} is temporary columns we not expect to see'
         assert len(match_columns) == 2, f' We see {len(match_columns)} instead of two column'
         for col in match_columns:
             assert col in df.columns
-        df = df.withColumn(self.END_TIME_MAP_ARRAY_COL, F.array())
+        df = df.withColumn(self.END_EVENTS_ARRAY_COL, F.array())
         curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
         df = df.withColumn(self.START_TIME_COL, F.when(curren_status_is_start, F.col(self._time_col)))
-        df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[0],match_col=match_columns[1])
-        df = self._mark_end_time_with_ending_reason_one_direction(df,anchor_col=match_columns[1],match_col=match_columns[0])
-        df = df.select("*",F.explode_outer(F.col( self.END_TIME_MAP_ARRAY_COL)).alias(self.END_TIME_MAP_COL))
-        df = df.withColumn(self.END_REASON_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_REASON_COL))
+        df = self._mark_end_time_with_ending_reason_one_direction(df, a_col=match_columns[0], b_col=match_columns[1])
+        df = self._mark_end_time_with_ending_reason_one_direction(df, a_col=match_columns[1], b_col=match_columns[0])
+        df = df.select("*", F.explode_outer(F.col(self.END_EVENTS_ARRAY_COL)).alias(self.END_TIME_MAP_COL))
+        df = df.withColumn(self.END_REASON_ORDINAL, F.col(self.END_TIME_MAP_COL + '.' + self.END_REASON_ORDINAL))
+        df = df.withColumn(self.END_REASON_NAME, F.col(self.END_TIME_MAP_COL + '.' + self.END_REASON_NAME))
         df = df.withColumn(self.END_TIME_COL, F.col(self.END_TIME_MAP_COL+'.'+self.END_TIME_COL))
-        df = df.drop( self.END_TIME_MAP_COL, self.END_TIME_MAP_ARRAY_COL ).distinct()
+        df = df.drop(self.END_TIME_MAP_COL, self.END_EVENTS_ARRAY_COL).distinct()
         return df
 
     def _build_transaction_end_when(self, cond: Column,
                                     output_col: str,
-                                    map_key: int,
+                                    reason: EndingTransactionReason,
                                     window_spec: WindowSpec):
         """
-            This is for inserting a Map element into output_cl
+            This is for inserting a couple( time,end reason)  element into output_cl
         :param cond: The condition when
         :param output_col:  where to ad the Map element
-        :param map_key: The key for the map (literal)
+        :param reason: The reason for ending transaction
         :param window_spec: The Window spec we use
         :return:
         """
         return F.when(cond, F.concat(F.col(output_col),
-                                     F.array(F.struct(F.lit(map_key).alias(self.END_REASON_COL),
+                                     F.array(F.struct(F.lit(reason.name).alias(self.END_REASON_NAME),
+                                                      F.lit(reason.value).alias(self.END_REASON_ORDINAL),
                                                       F.lead(self._time_col, 1).over(window_spec).alias(
-                                                          self.END_TIME_COL))))
-                      ).otherwise(F.col(output_col))
+                                                          self.END_TIME_COL)))
+                      )).otherwise(F.col(output_col))
 
     def _mark_end_time_with_ending_reason_one_direction(
                                 self,
                                 df: DataFrame,
-                                anchor_col: str,
-                                match_col: str):
+                                a_col: str,
+                                b_col: str):
         """
-        Notice that input is that the match for each start we have not nul anchor and match values
-        The assumption is that start rows marked valid have unique key (time,anchor)
-        This is because we made that in preparation before.
-        The descending order in the window below of the status column is to avoid taking into account
-        end rows for the same (time,anchor) will not be an option for ending transaction
+        We assume only valid start i.e. = per each (time,a_col,, status=start, F.col(self._start_validity_column)=True ) there is one row
+        Notice the window order. If we have (anchor=1,status=start,t=1) and (anchor=1,starts=end,t=1)
         The usage of _matched_col in the order by, is just for determinism of the result, and preference
         of ending not involving null matched  col
 
         :param df:
-        :param anchor_col:
-        :param match_col:
+        :param a_col:
+        :param b_col:
         :return: DataFrame
         """
-        print(f'anchor={anchor_col}')
-        print(f'match={match_col}')
-        order_by = [F.col(anchor_col).asc_nulls_last(),F.col(self._time_col).asc_nulls_last(),F.col(self._status_col).desc_nulls_last(),F.col(match_col).asc_nulls_last()] + \
+        print(f'anchor={a_col}')
+        print(f'match={b_col}')
+        order_by = [F.col(a_col).asc_nulls_last(),
+                    F.col(self._time_col).asc(),
+                    F.col(self._status_col).desc(),
+                    F.col(b_col).asc_nulls_last()] + \
                    [F.col(col).asc_nulls_last() for col in self._other_matches]
-        window_spec: WindowSpec = Window.partitionBy(anchor_col).orderBy(*order_by)
+        window_spec: WindowSpec = Window.partitionBy(a_col).orderBy(*order_by)
 
-        same_anchor =  F.col(anchor_col) == F.lead(anchor_col, 1).over(window_spec)
+        same_a_col = F.col(a_col) == F.lead(a_col, 1).over(window_spec)
+        same_b_col = F.col(b_col) == F.lead(b_col, 1).over(window_spec)
+        same_match = same_b_col & same_a_col
         next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START.value
+        next_status_is_update = F.lead(self._status_col, 1).over(window_spec) == self.Status.UPDATE.value
         next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END.value
-        next_match_is_null = F.lead(match_col, 1).over(window_spec).isNull()
-        same_match_col = F.col(match_col) == F.lead(match_col, 1).over(window_spec)
-        match_broken = ~same_match_col & F.lead(match_col, 1).over(window_spec).isNotNull()
+        next_b_col_is_null = F.lead(b_col, 1).over(window_spec).isNull()
+        match_broken = ~same_b_col & ~next_b_col_is_null
 
         curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
         curren_status_is_valid_start = curren_status_is_start & (F.col(self._start_validity_column) == F.lit(True))
-        start_after_start_cond = curren_status_is_valid_start & next_status_is_start
-        end_after_start_cond = curren_status_is_valid_start & next_status_is_end
+        start_after_start_valid = curren_status_is_valid_start & next_status_is_start
+        end_after_start_valid = curren_status_is_valid_start & next_status_is_end
+        update_after_start_valid = curren_status_is_valid_start & next_status_is_update
+
 
         ending_reason_to_condition_map = {
-            self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH : same_anchor & same_match_col & end_after_start_cond,
-            self.EndingTransactionReason.NEXT_END_NULL: same_anchor & next_match_is_null & end_after_start_cond,
-            self.EndingTransactionReason.NEXT_START_DIFFERENT_MATCH: same_anchor & match_broken & start_after_start_cond,
-            self.EndingTransactionReason.NEXT_END_DIFFERENT_MATCH: same_anchor & match_broken & end_after_start_cond,
-            self.EndingTransactionReason.NEXT_START_FOR_SAME_MATCH: same_anchor & start_after_start_cond & same_match_col,
+            self.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH : same_match & end_after_start_valid,
+            self.EndingTransactionReason.NEXT_END_MATCH_BREAK: same_a_col & match_broken & end_after_start_valid,
+            self.EndingTransactionReason.NEXT_END_NULL: same_a_col & next_b_col_is_null & end_after_start_valid,
+            self.EndingTransactionReason.NEXT_START_MATCH_BREAK: same_a_col & match_broken & start_after_start_valid,
+            self.EndingTransactionReason.NEXT_START_SAME_MATCH: same_match & start_after_start_valid,
+            self.EndingTransactionReason.NEXT_START_MATCH_NULL: same_a_col & start_after_start_valid & next_b_col_is_null,
+            self.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK: same_a_col & update_after_start_valid & match_broken,
+            self.EndingTransactionReason.NEXT_UPDATE_MATCH_NULL: same_a_col & update_after_start_valid & next_b_col_is_null,
         }
 
         for reason in self._ending_conditions:
             if reason not in ending_reason_to_condition_map.keys():
-                raise Exception(f"reason {reason} not in our support")
-            df = df.withColumn( self.END_TIME_MAP_ARRAY_COL,
-                self._build_transaction_end_when(
-                cond=ending_reason_to_condition_map[reason],
-                output_col= self.END_TIME_MAP_ARRAY_COL,
-                map_key=reason.value,
-                window_spec=window_spec))
+                raise Exception(f"reason {reason.value} not in our support")
+            cond=ending_reason_to_condition_map[reason]
+            when = self._build_transaction_end_when(
+                cond=cond,
+                output_col= self.END_EVENTS_ARRAY_COL,
+                reason=reason,
+                window_spec=window_spec)
+            df = df.withColumn(self.END_EVENTS_ARRAY_COL, when)
 
         return df.distinct()
 
 
-
-
-
-    def _get_close_transactions(self, df):
+    def _choose_final_transactions_end(self, df):
         df = df.where(F.col(self.END_TIME_COL).isNotNull())
-        window_spec:WindowSpec = Window.partitionBy(self._anchor_col, self._matched_col, self.START_TIME_COL).orderBy(self._time_col)
+        window_spec:WindowSpec = Window.partitionBy(self._a_col, self._b_col, self.START_TIME_COL).orderBy(*[F.col(self._time_col), F.col(self.END_REASON_ORDINAL).asc()])
         df = df.withColumn('final_end_time',F.first(self.END_TIME_COL).over(window_spec))
-        df = df.withColumn('final_end_reason',F.first(self.END_REASON_COL).over(window_spec)).drop('end_time','end_reason')
+        df = df.withColumn('final_end_reason', F.first(self.END_REASON_NAME).over(window_spec))
+        df = df.drop(self.END_TIME_COL, self.END_REASON_ORDINAL, self.END_REASON_NAME)
         df = df.where(F.col('final_end_time') == F.col('end_time')).orderBy('start_time')
         return df
 
 
     def _connect_succeeding_transactions(self, df):
         df = df.where(F.col('final_end_time').isNotNull())
-        window_spec:WindowSpec = Window.partitionBy(self._anchor_col, self._matched_col).orderBy(self.START_TIME_COL)
+        window_spec:WindowSpec = Window.partitionBy(self._a_col, self._b_col).orderBy(self.START_TIME_COL)
         has_upper_neighbor = F.lead('start_time').over(window_spec) == F.col('final_end_time')
         has_lower_neighbor = F.lag('final_end_time').over(window_spec) == F.col('start_time')
         df = df.withColumn('neighbors_status',
@@ -311,7 +354,7 @@ class TransactionAnalysis:
                     df: DataFrame) -> DataFrame:
         df_normalized = self._initialize_dataframe(df)
         df = self._prepare_valid_transaction_start_points(df_normalized)
-        df = self._mark_end_time_with_ending_reason(df, match_columns=[self._anchor_col, self._matched_col])
-        df = self._get_close_transactions(df)
+        df = self._mark_end_time_with_ending_reason(df, match_columns=[self._a_col, self._b_col])
+        df = self._choose_final_transactions_end(df)
         df = self._connect_succeeding_transactions(df)
         return  df_normalized,df.distinct()
