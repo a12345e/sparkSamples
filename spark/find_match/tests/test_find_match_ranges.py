@@ -36,7 +36,6 @@ def test_enumerate_status_colum(spark, input_row, expected_row):
     ])
     df_a = RowsBuilder(input_schema, session=spark).add(input_row).df
     df_a = find_match_ranges._enumerate_status_column(df_a)
-    print_dataframe_schema_and_rows(df_a)
     df_e = RowsBuilder(expected_schema, spark).add(expected_row).df
     compare_dataframes(df_a, df_e)
 
@@ -327,7 +326,6 @@ def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
                          ])
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=["a","b"])
-    print_dataframe_schema_and_rows(df_a)
     df_e = RowsBuilder(output_schema,spark).add_rows(expected_rows).df
     compare_dataframes(df_e,df_a)
 
