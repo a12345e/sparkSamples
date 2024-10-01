@@ -92,12 +92,12 @@ class TransactionAnalysis:
     def prepare_transactions(
                     self,
                     df: DataFrame) -> DataFrame:
-        df_normalized = self._initialize_dataframe(df)
-        df = self._prepare_valid_transaction_start_points(df_normalized)
+        df = self._initialize_dataframe(df)
+        df = self._prepare_valid_transaction_start_points(df)
         df = self._mark_end_time_with_ending_reason(df, match_columns=[self._a_col, self._b_col])
         df = self._choose_final_transactions_end(df)
         df = self._connect_succeeding_transactions(df)
-        return  df_normalized,df.distinct()
+        return  df.distinct()
 
     def filter_avoid_null_a_col(self):
         """
@@ -180,7 +180,7 @@ class TransactionAnalysis:
             We have to make sure that per each key tuple there can be only one matched value for the other columns
             Per each row tuple we end up with either one reduced row and a validity column set to valid,
             or we keep the original rows and marks them as invalid start points. While invalid, as
-            start points these columns are still valid to end another match started earlier
+            start points these rows are still valid to end another match started earlier.
 
 
             1) Row(s=start,t=1,anchor_col=1,match_col=1,other_match_col1=1) - will be marked valid
@@ -272,8 +272,8 @@ class TransactionAnalysis:
                                 a_col: str,
                                 b_col: str):
         """
-        This is the low level function to mark end times, and reasons
-        Notice the choice for nulls as last, and the descending order for status in the order by.
+        This is the low level function to mark all applicable end times with the specification of reason
+        Notice the choice for nulls as last, and the descending order for status in the order by!!
 
         We already took care so that we have valid start transactions marked and never more than one row
         per (time_col,a_col) if,status=start and start_valid=True) similarly for (time_col,b_col) if status=start and start_valid=True
@@ -289,16 +289,14 @@ class TransactionAnalysis:
         Conclusion is that next row will always have bigger time_col, so we need not add another condition
         verifying that the next row time is later.
 
-        This is the most important thing:
-        We always move from a VALID start transaction in one step to a new time_col for same a_col, or else we have no transaction end for this transaction
 
         In case we have closing row the conditions below will mark it with the right reason.
-        Now since updates unlike start,end can happen many times without breaking a transaction, we need to do with them and without them
+        Now since updates unlike start,end can happen many times without breaking a transaction, we need to do with them and without them, and so we do.
         End and Start rows will always break a transaction when we meet them at next time_col.
-        When next row is a start case this is either a new valid start or an invalid start that has to break our current
+        When next row is a start case this is either a new valid start or an invalid start that has to break our current transaction anyway.
 
         There is either another row found with bigger time_col for same a_col and in such case one of the
-        conditions for reasoning an end
+        conditions for reasoning an end should appy
         Now that we are there we mark the end of the transaction
 
 
@@ -392,7 +390,6 @@ class TransactionAnalysis:
         We  then  remove all type 3 transactions as they are all in-between neighbors
         Then we extend the end time range of type=1 to the end time of their upper neighbors
         Then we also take the ending reason as the last transaction although there is no hard logic to it.
-
 
         :param df:
         :return:

@@ -2,7 +2,7 @@ import pytest
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, Row, BooleanType
 
 from spark.find_match.find_match_ranges import TransactionAnalysis
-from tests.infra.dataframes_helpers import compare_dataframes, RowsBuilder
+from tests.infra.dataframes_helpers import compare_dataframes, RowsBuilder, print_dataframe_schema_and_rows
 from tests.infra.default_spark_builder import spark
 
 find_match_ranges = (TransactionAnalysis(a_col='a', b_col='b',
@@ -438,7 +438,7 @@ def test_choose_final_transactions_end(spark, input_rows, expected_rows):
     df_e = RowsBuilder(output_schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_a, df_e)
 
-
+#0556634825
 @pytest.mark.parametrize("input_rows, expected_rows", [
     pytest.param([
         Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=21,
@@ -460,11 +460,11 @@ def test_choose_final_transactions_end(spark, input_rows, expected_rows):
     ],
         [
             Row(a=1, b=1, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=30,
-                final_end_reason='NEXT_END_MATCH_BREAK'),
+                final_end_reason='NEXT_START_MATCH_NULL'),
             Row(a=1, b=1, status=1, t=21, o1=1, o2=1, v=True, start_time=51, final_end_time=78,
-                final_end_reason='NEXT_END_NULL'),
+                final_end_reason='NEXT_START_MATCH_NULL'),
             Row(a=2, b=2, status=1, t=21, o1=1, o2=1, v=True, start_time=21, final_end_time=30,
-                final_end_reason='NEXT_END_NULL'),
+                final_end_reason='NEXT_START_MATCH_NULL'),
         ], id=' We test three groups of transactions that each get connected together, two of them '
               'for the same match yet not interconnected in between')
 ])
@@ -477,5 +477,46 @@ def test_connect_succeeding_transactions(spark, input_rows, expected_rows):
                          StructField('final_end_reason', StringType(), True)])
     df = RowsBuilder(schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._connect_succeeding_transactions(df)
+
+
     df_e = RowsBuilder(schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_a, df_e)
+
+@pytest.mark.parametrize("input_rows, expected_rows", [
+    pytest.param([Row(a=0, b=0, status='start', t=1, o1=1, o2=1),
+                  Row(a=0, b=0, status='update', t=2, o1=1, o2=1),
+                  Row(a=0, b=0, status='end', t=3, o1=1, o2=1)]
+        , [Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=3, final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value)], id='simple basic'),
+
+    pytest.param([Row(a=0, b=0, status='start', t=1, o1=1, o2=1),
+                  Row(a=0, b=0, status='update', t=2, o1=1, o2=1),
+                  Row(a=0, b=0, status='update', t=3, o1=1, o2=1),
+                  Row(a=0, b=1, status='update', t=3, o1=1, o2=1)]
+        , [Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True, start_time=1,
+               final_end_time=3,
+               final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.value)],
+                 id='simple basic')
+
+])
+def test_prepare_transactions(spark, input_rows, expected_rows):
+    schema = StructType([StructField("a", IntegerType(), True),
+                         StructField("b", IntegerType(), True),
+                         StructField("status", StringType(), True),
+                         StructField("t", IntegerType(), True),
+                         StructField("o1", IntegerType(), True),
+                         StructField("o2", IntegerType(), True)
+                         ])
+    find_match_ranges = TransactionAnalysis(a_col='a', b_col='b',
+                                             time_col='t', status_col='status',
+                                             other_matches=['o1', 'o2'],
+                                             status_namings={
+                                                 'start': TransactionAnalysis.Status.START.value,
+                                                 'update': TransactionAnalysis.Status.UPDATE.value,
+                                                 'end': TransactionAnalysis.Status.END.value
+                                             }, start_valid_column='v')
+
+    df_a = RowsBuilder(schema, spark).add_rows(input_rows).df
+    df_a = find_match_ranges.prepare_transactions(df_a)
+    print_dataframe_schema_and_rows(df_a)
+    # df_e = RowsBuilder(schema, spark).add_rows(expected_rows).df
+    # compare_dataframes(df_a, df_e)
