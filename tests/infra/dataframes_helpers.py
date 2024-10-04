@@ -53,6 +53,7 @@ class RowsBuilder:
 
     @property
     def df(self):
+        random.shuffle(self._rows)
         return self._session.createDataFrame(self._rows, self._schema)
 
 

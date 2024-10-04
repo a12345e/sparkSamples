@@ -369,7 +369,6 @@ def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
                                ])
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=["a", "b"])
-    print_dataframe_schema_and_rows(df_a)
     df_e = RowsBuilder(output_schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_e, df_a)
 
@@ -466,8 +465,6 @@ def test_connect_succeeding_transactions(spark, input_rows, expected_rows):
                          StructField('final_end_reason', StringType(), True)])
     df = RowsBuilder(schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._connect_succeeding_transactions(df)
-
-
     df_e = RowsBuilder(schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_a, df_e)
 
@@ -518,6 +515,5 @@ def test_prepare_transactions_updates_when_are_starts(spark, input_rows, expecte
 
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges.prepare_transactions(df_a)
-    print_dataframe_schema_and_rows(df_a)
     df_e = RowsBuilder(output_schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_a, df_e)
