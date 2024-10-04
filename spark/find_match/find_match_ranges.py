@@ -1,8 +1,7 @@
-from itertools import chain
 from typing import Dict, List
 import pyspark.sql.functions as F
 from pyspark.sql import Window, WindowSpec, Column
-import uuid
+
 
 
 from pyspark.sql.dataframe import DataFrame
@@ -26,10 +25,10 @@ class TransactionAnalysis:
         NEXT_START_MATCH_BREAK = 4
         NEXT_START_SAME_MATCH = 5
         NEXT_START_MATCH_NULL = 6
-        NEXT_UPDATE_MATCH_BREAK = 7
-        NEXT_UPDATE_MATCH_NULL = 8
 
-
+    class UpdateStatusPolicy(Enum):
+        IGNORE = 1
+        ASSUME_START = 2
 
     START_TIME_COL = 'start_time'
     END_TIME_COL = 'end_time'
@@ -46,7 +45,8 @@ class TransactionAnalysis:
                  status_namings: 'Dict[Status, int]',
                  other_matches: 'List[str]',
                  start_valid_column: str,
-                 ending_conditions=None):
+                 ending_conditions=None,
+                 update_status_policy:UpdateStatusPolicy= UpdateStatusPolicy.IGNORE):
 
         self._a_col = a_col
         self._b_col = b_col
@@ -63,6 +63,11 @@ class TransactionAnalysis:
             self._ending_conditions = [reason for reason in self.EndingTransactionReason]
         else:
             self._ending_conditions = ending_conditions
+        self._update_status_policy = update_status_policy
+
+        if self._update_status_policy == TransactionAnalysis.UpdateStatusPolicy.IGNORE:
+            self._optional_initial_filters.append(lambda df: df.where(F.col(self._status_col).isin([self.Status.START.value, self.Status.END.value])))
+
 
     @property
     def _start_condition(self) -> Column:
@@ -86,7 +91,11 @@ class TransactionAnalysis:
         df = self._filter_avoid_null_time_col(df)
         df = self._filter_avoid_a_col_and_b_col_null_together(df)
         df = self._filter_optional(df)
-
+        if self._update_status_policy == TransactionAnalysis.UpdateStatusPolicy.ASSUME_START:
+            df = df.withColumn(self._status_col,
+                               F.when(F.col(self._status_col) == TransactionAnalysis.Status.UPDATE.value,
+                                      TransactionAnalysis.Status.START.value
+                                ).otherwise(F.col(self._status_col)))
         return df
 
     def prepare_transactions(
@@ -117,12 +126,11 @@ class TransactionAnalysis:
                                                                   (F.col(self._status_col) != TransactionAnalysis.Status.START.value)))
         return self
 
-    def filter_keep_only_start_end_status(self):
+    def _implement_update_policy(self):
         """
         Not use update status events even for ending a transaction
         :return:
         """
-        self._optional_initial_filters.append(lambda df: df.where(F.col(self._status_col).isin([self.Status.START.value, self.Status.END.value])))
         return self
 
     def _filter_optional(self, df):
@@ -230,13 +238,14 @@ class TransactionAnalysis:
                                 df: DataFrame,
                                 match_columns: List[str]) -> DataFrame:
 
+        assert df.where(~F.col(self._status_col).isin(TransactionAnalysis.Status.START.value,TransactionAnalysis.Status.END.value,)).count() == 0, 'there are rows with status not  start,end'
         assert self.END_TIME_MAP_COL not in df.columns, f'{self.END_TIME_MAP_COL} is temporary columns we not expect to see'
         assert self.END_EVENTS_ARRAY_COL not in df.columns, f'{self.END_EVENTS_ARRAY_COL} is temporary columns we not expect to see'
         assert len(match_columns) == 2, f' We see {len(match_columns)} instead of two column'
         for col in match_columns:
             assert col in df.columns
         df = df.withColumn(self.END_EVENTS_ARRAY_COL, F.array())
-        curren_status_is_start = (F.col(self._status_col) == self.Status.START.value)
+        curren_status_is_start = F.col(self._status_col) == self.Status.START.value
         df = df.withColumn(self.START_TIME_COL, F.when(curren_status_is_start, F.col(self._time_col)))
         df = self._mark_end_time_with_ending_reason_one_direction(df, a_col=match_columns[0], b_col=match_columns[1])
         df = self._mark_end_time_with_ending_reason_one_direction(df, a_col=match_columns[1], b_col=match_columns[0])
@@ -316,7 +325,6 @@ class TransactionAnalysis:
         same_b_col = F.col(b_col) == F.lead(b_col, 1).over(window_spec)
         same_match = same_b_col & same_a_col
         next_status_is_start = F.lead(self._status_col, 1).over(window_spec) == self.Status.START.value
-        next_status_is_update = F.lead(self._status_col, 1).over(window_spec) == self.Status.UPDATE.value
         next_status_is_end = F.lead(self._status_col, 1).over(window_spec) == self.Status.END.value
         next_b_col_is_null = F.lead(b_col, 1).over(window_spec).isNull()
         match_broken = ~same_b_col & ~next_b_col_is_null
@@ -325,7 +333,6 @@ class TransactionAnalysis:
         curren_status_is_valid_start = curren_status_is_start & (F.col(self._start_validity_column) == F.lit(True))
         start_after_start_valid = curren_status_is_valid_start & next_status_is_start
         end_after_start_valid = curren_status_is_valid_start & next_status_is_end
-        update_after_start_valid = curren_status_is_valid_start & next_status_is_update
 
 
         ending_reason_to_condition_map = {
@@ -334,14 +341,9 @@ class TransactionAnalysis:
             self.EndingTransactionReason.NEXT_END_NULL: same_a_col & next_b_col_is_null & end_after_start_valid,
             self.EndingTransactionReason.NEXT_START_MATCH_BREAK: same_a_col & match_broken & start_after_start_valid,
             self.EndingTransactionReason.NEXT_START_SAME_MATCH: same_match & start_after_start_valid,
-            self.EndingTransactionReason.NEXT_START_MATCH_NULL: same_a_col & start_after_start_valid & next_b_col_is_null,
-            self.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK: same_a_col & update_after_start_valid & match_broken,
-            self.EndingTransactionReason.NEXT_UPDATE_MATCH_NULL: same_a_col & update_after_start_valid & next_b_col_is_null,
+            self.EndingTransactionReason.NEXT_START_MATCH_NULL: same_a_col & start_after_start_valid & next_b_col_is_null
         }
-        for ignore_statuses in [[TransactionAnalysis.Status.UPDATE.value],[]]:
-            df_ignore = df.where(F.col(self._status_col).isin(ignore_statuses))
-            df_not_ignored =  df.where(~F.col(self._status_col).isin(ignore_statuses))
-            for reason in self._ending_conditions:
+        for reason in self._ending_conditions:
                 if reason not in ending_reason_to_condition_map.keys():
                     raise Exception(f"reason {reason.value} not in our support")
                 cond=ending_reason_to_condition_map[reason]
@@ -350,8 +352,7 @@ class TransactionAnalysis:
                     output_col= self.END_EVENTS_ARRAY_COL,
                     reason=reason,
                     window_spec=window_spec)
-                df_not_ignored = df_not_ignored.withColumn(self.END_EVENTS_ARRAY_COL, when)
-            df = df_not_ignored.unionByName(df_ignore)
+                df = df.withColumn(self.END_EVENTS_ARRAY_COL, when)
 
         return df.distinct()
 

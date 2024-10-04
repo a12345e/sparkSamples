@@ -2,7 +2,11 @@ from typing import List
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType, Row, FloatType, LongType, DoubleType, TimestampType
 from datetime import datetime, timedelta
-
+import time
+import random
+seed = int(time.time() * 1000)
+# Set the random seed
+random.seed(seed)
 
 
 def create_rows_builder(spark, schema:StructType, anchor: DataFrame=None, counter: int = None):
@@ -11,12 +15,10 @@ def create_rows_builder(spark, schema:StructType, anchor: DataFrame=None, counte
 class RowsBuilder:
     def __init__(self, schema: StructType,
                  session: SparkSession,
-                 anchor: DataFrame=None,
-                 counter: int=None):
+                 anchor: DataFrame=None):
         self._schema = schema
         self._session = session
         self._rows: List = []
-        self._counter = counter
         self._anchor = anchor
 
     def _validate(self, row: Row):
@@ -39,9 +41,7 @@ class RowsBuilder:
             for key in set(base_as_dict.keys())-set(row_as_dict.keys()):
                 row_as_dict[key] = base_as_dict[key]
             row = Row(**row_as_dict)
-        new_row = complete_row_to_schema(row,self._schema, self._counter)
-        if self._counter:
-            self._counter = self._counter + 1
+        new_row = complete_row_to_schema(row,self._schema)
         self._rows.append(new_row)
         return self
     @property
@@ -79,8 +79,7 @@ def rows_validate_schema(rows: List[Row], schema: StructType):
         row_validate_schema(row, schema)
 
 def complete_row_to_schema(row: Row,
-                           schema: StructType,
-                           counter: int =None
+                           schema: StructType
                            ) -> Row:
     row_validate_schema(row, schema)
     if row == Row():
@@ -89,28 +88,14 @@ def complete_row_to_schema(row: Row,
         completed_row = row.asDict()
     missing_fields = [field for field in schema.fields if field.name not in completed_row.keys()]
     for field in missing_fields:
-        if not counter:
-            completed_row[field.name] = None
-        elif isinstance(field.dataType, StringType):
-            completed_row[field.name] = f'{field.name}_{counter}'
-        elif isinstance(field.dataType, LongType) or isinstance(field.dataType, IntegerType):
-            completed_row[field.name] = counter
-        elif isinstance(field.dataType, DoubleType) or isinstance(field.dataType, FloatType):
-            completed_row[field.name] = float(counter)
-        elif isinstance(field.dataType, TimestampType):
-            completed_row[field.name] = datetime(2000, 1, 1) + timedelta(hours=counter)
-        else:
-            completed_row[field.name] = None
+        completed_row[field.name] = None
     return Row(*[completed_row[field] for field in schema.fieldNames()])
 
 def complete_rows_to_schema(rows: List[Row],
-                           schema: StructType,
-                           counter=None,
+                           schema: StructType
                            ) -> list[Row]:
     for row in rows:
-        if counter:
-            counter = counter + 1
-        complete_row_to_schema(row, schema, counter)
+        complete_row_to_schema(row, schema)
 
 def compare_dataframes(expected_df: DataFrame, actual_df: DataFrame):
     report = []

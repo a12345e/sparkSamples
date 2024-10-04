@@ -5,16 +5,16 @@ from spark.find_match.find_match_ranges import TransactionAnalysis
 from tests.infra.dataframes_helpers import compare_dataframes, RowsBuilder, print_dataframe_schema_and_rows
 from tests.infra.default_spark_builder import spark
 
-find_match_ranges = (TransactionAnalysis(a_col='a', b_col='b',
+find_match_ranges = TransactionAnalysis(a_col='a', b_col='b',
                                          time_col='t', status_col='status',
                                          other_matches=['o1', 'o2'],
                                          status_namings={
                                              'start': TransactionAnalysis.Status.START.value,
                                              'update': TransactionAnalysis.Status.UPDATE.value,
                                              'end': TransactionAnalysis.Status.END.value
-                                         }, start_valid_column='v').filter_avoid_null_a_col().
-                     filter_avoid_null_b_col_when_status_is_start().
-                     filter_keep_only_start_end_status())
+                                         }, start_valid_column='v').filter_avoid_null_a_col().filter_avoid_null_b_col_when_status_is_start()
+
+
 
 
 @pytest.mark.parametrize("input_row, expected_row", [
@@ -208,17 +208,16 @@ def test__prepare_valid_transaction_start_points(spark, default_row, input_rows,
 
     pytest.param(
         [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-         Row(a=0, b=0, status=2, t=2, o1=1, o2=1, v=False),
+         Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=False),
          Row(a=0, b=0, status=3, t=3, o1=1, o2=1, v=False)],
         [
-            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
-                end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value,
-                end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.name, end_time=3),
+            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=5,
+                end_reason_name='NEXT_START_SAME_MATCH', end_time=2),
+            Row(a=0, b=0, status=1, t=2, o1=1, o2=1, v=False, start_time=2, end_reason_ordinal=None,
+                end_reason_name=None, end_time=None),
             Row(a=0, b=0, status=3, t=3, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
                 end_reason_name=None, end_time=None),
-            Row(a=0, b=0, status=2, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
-                end_reason_name=None, end_time=None),
-        ], id='simple  start end but with matching update in between'),
+        ], id='simple  start end but with matching start in between'),
 
     pytest.param(
         [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
@@ -302,37 +301,27 @@ def test__prepare_valid_transaction_start_points(spark, default_row, input_rows,
 
     pytest.param(
         [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-         Row(a=0, b=1, status=2, t=2, o1=1, o2=1, v=False)],
+         Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=False)],
 
-        [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
-             end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.value,
-             end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.name, end_time=2),
-         Row(a=0, b=1, status=2, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
-             end_reason_name=None, end_time=None)], id='next match break by update '),
-
-    pytest.param(
-        [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
-         Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False)],
-
-        [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1,
-             end_reason_ordinal=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_NULL.value,
-             end_reason_name=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_NULL.name, end_time=2),
-         Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
-             end_reason_name=None, end_time=None)], id='next match null by update '),
-
+        [
+            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=4,
+                end_reason_name='NEXT_START_MATCH_BREAK', end_time=2),
+            Row(a=0, b=1, status=1, t=2, o1=1, o2=1, v=False, start_time=2, end_reason_ordinal=None,
+                end_reason_name=None, end_time=None),
+        ], id='next match break by start '),
     pytest.param(
         [Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True),
          Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
          Row(a=0, b=0, status=3, t=3, o1=1, o2=1, v=False),
-         Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False),
+         Row(a=0, b=None, status=1, t=2, o1=1, o2=1, v=False),
          ],
 
         [
-            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=8,
-                end_reason_name='NEXT_UPDATE_MATCH_NULL', end_time=2),
+            Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=6,
+                end_reason_name='NEXT_START_MATCH_NULL', end_time=2),
             Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=1,
                 end_reason_name='NEXT_END_FOR_SAME_MATCH', end_time=3),
-            Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
+            Row(a=0, b=None, status=1, t=2, o1=1, o2=1, v=False, start_time=2, end_reason_ordinal=None,
                 end_reason_name=None, end_time=None),
             Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True, start_time=None, end_reason_ordinal=None,
                 end_reason_name=None, end_time=None),
@@ -343,17 +332,16 @@ def test__prepare_valid_transaction_start_points(spark, default_row, input_rows,
         [Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True),
          Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True),
          Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=False),
-         Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False),
+         Row(a=0, b=None, status=1, t=2, o1=1, o2=1, v=False),
          ],
 
         [
             Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, end_reason_ordinal=1,
                 end_reason_name='NEXT_END_FOR_SAME_MATCH', end_time=2),
-            Row(a=0, b=None, status=2, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
+            Row(a=0, b=None, status=1, t=2, o1=1, o2=1, v=False, start_time=2, end_reason_ordinal=None,
                 end_reason_name=None, end_time=None),
             Row(a=0, b=0, status=3, t=1, o1=1, o2=1, v=True, start_time=None, end_reason_ordinal=None,
-                end_reason_name=None,
-                end_time=None),
+                end_reason_name=None, end_time=None),
             Row(a=0, b=0, status=3, t=2, o1=1, o2=1, v=False, start_time=None, end_reason_ordinal=None,
                 end_reason_name=None, end_time=None),
         ], id=' one ending with higher priority is chosen when there are two endings with same time '),
@@ -381,6 +369,7 @@ def test_mark_end_time_with_ending_reason(spark, input_rows, expected_rows):
                                ])
     df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges._mark_end_time_with_ending_reason(df=df_a, match_columns=["a", "b"])
+    print_dataframe_schema_and_rows(df_a)
     df_e = RowsBuilder(output_schema, spark).add_rows(expected_rows).df
     compare_dataframes(df_e, df_a)
 
@@ -486,26 +475,38 @@ def test_connect_succeeding_transactions(spark, input_rows, expected_rows):
     pytest.param([Row(a=0, b=0, status='start', t=1, o1=1, o2=1),
                   Row(a=0, b=0, status='update', t=2, o1=1, o2=1),
                   Row(a=0, b=0, status='end', t=3, o1=1, o2=1)]
-        , [Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=3, final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_END_FOR_SAME_MATCH.value)], id='simple basic'),
+        , [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=3, final_end_reason='NEXT_END_FOR_SAME_MATCH')
+           ], id='simple basic'),
 
     pytest.param([Row(a=0, b=0, status='start', t=1, o1=1, o2=1),
                   Row(a=0, b=0, status='update', t=2, o1=1, o2=1),
                   Row(a=0, b=0, status='update', t=3, o1=1, o2=1),
                   Row(a=0, b=1, status='update', t=3, o1=1, o2=1)]
-        , [Row(a=0, b=0, status=TransactionAnalysis.Status.START.value, t=1, o1=1, o2=1, v=True, start_time=1,
-               final_end_time=3,
-               final_end_reason=TransactionAnalysis.EndingTransactionReason.NEXT_UPDATE_MATCH_BREAK.value)],
-                 id='simple basic')
+        , [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=3, final_end_reason='NEXT_START_SAME_MATCH')],
+                 id='simple break transaction with an update'),
+
+    pytest.param(
+        [Row(a=0, b=0, status='start', t=1, o1=1, o2=1),
+                  Row(a=0, b=0, status='update', t=2, o1=1, o2=1),
+                  Row(a=0, b=None, status='end', t=3, o1=1, o2=1),
+                  Row(a=0, b=0, status='update', t=3, o1=1, o2=1),
+                  Row(a=0, b=0, status='start', t=3, o1=1, o2=1),
+                  Row(a=0, b=0, status='update', t=4, o1=1, o2=1),
+                  Row(a=0, b=1, status='start', t=5, o1=1, o2=1),
+               ],
+               [Row(a=0, b=0, status=1, t=1, o1=1, o2=1, v=True, start_time=1, final_end_time=5, final_end_reason='NEXT_START_MATCH_BREAK')],
+                 id='two succeeding transactions')
 
 ])
-def test_prepare_transactions(spark, input_rows, expected_rows):
-    schema = StructType([StructField("a", IntegerType(), True),
+def test_prepare_transactions_updates_when_are_starts(spark, input_rows, expected_rows):
+    input_schema = StructType([StructField("a", IntegerType(), True),
                          StructField("b", IntegerType(), True),
                          StructField("status", StringType(), True),
                          StructField("t", IntegerType(), True),
                          StructField("o1", IntegerType(), True),
                          StructField("o2", IntegerType(), True)
                          ])
+    output_schema = StructType([StructField('a', IntegerType(), True), StructField('b', IntegerType(), True), StructField('status', IntegerType(), True), StructField('t', IntegerType(), True), StructField('o1', IntegerType(), True), StructField('o2', IntegerType(), True), StructField('v', BooleanType(), False), StructField('start_time', IntegerType(), True), StructField('final_end_time', IntegerType(), True), StructField('final_end_reason', StringType(), True)])
     find_match_ranges = TransactionAnalysis(a_col='a', b_col='b',
                                              time_col='t', status_col='status',
                                              other_matches=['o1', 'o2'],
@@ -513,10 +514,10 @@ def test_prepare_transactions(spark, input_rows, expected_rows):
                                                  'start': TransactionAnalysis.Status.START.value,
                                                  'update': TransactionAnalysis.Status.UPDATE.value,
                                                  'end': TransactionAnalysis.Status.END.value
-                                             }, start_valid_column='v')
+                                             }, start_valid_column='v', update_status_policy=TransactionAnalysis.UpdateStatusPolicy.ASSUME_START)
 
-    df_a = RowsBuilder(schema, spark).add_rows(input_rows).df
+    df_a = RowsBuilder(input_schema, spark).add_rows(input_rows).df
     df_a = find_match_ranges.prepare_transactions(df_a)
     print_dataframe_schema_and_rows(df_a)
-    # df_e = RowsBuilder(schema, spark).add_rows(expected_rows).df
-    # compare_dataframes(df_a, df_e)
+    df_e = RowsBuilder(output_schema, spark).add_rows(expected_rows).df
+    compare_dataframes(df_a, df_e)
