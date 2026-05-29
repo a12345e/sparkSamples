@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "WeatherTool": {
+      "command": "python",
+      "args": [
+        "C:\\Users\\a1234\\PycharmProjects\\PythonProject2\\weather_server.py"
+      ]
+    }
+  }
+}
