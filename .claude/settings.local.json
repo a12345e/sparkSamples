@@ -4,7 +4,8 @@
       "PowerShell(python -m pip install pytest 2>&1 | Select-Object -Last 5)",
       "PowerShell($env:SPARK_HOME = \"c:\\\\spark\"; $env:JAVA_HOME = \"C:\\\\Program Files\\\\Microsoft\\\\jdk-21.0.11.10-hotspot\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; python spark_app\\\\dataframe_example.py 2>&1 | Select-String -Pattern \"^\\(Python|PySpark|Spark|Java|Full|Engineers|[\\\\+\\\\|]\\)\" | Out-String)",
       "PowerShell(Remove-Item *)",
-      "Bash(.venv/Scripts/python.exe -m pytest spark_app/test_song_gaps.py -v)"
+      "Bash(.venv/Scripts/python.exe -m pytest spark_app/test_song_gaps.py -v)",
+      "Bash(python -m pytest spark_app/test_song_gaps.py -q)"
     ]
   }
 }
